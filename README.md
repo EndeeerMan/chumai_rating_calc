@@ -1,5 +1,11 @@
 # ChuMai Rating Calc
 
+<p align="center">
+  <img src="web/assets/maimai-mark.png" width="92" alt="舞萌 DX">
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="web/assets/chunithm-mark.png" width="92" alt="中二节奏">
+</p>
+
 舞萌 DX 与中二节奏的本地成绩管理、Rating 计算及微信公众号成绩同步工具。
 
 项目使用原生 HTML、CSS、JavaScript 与 JDK 标准库实现，不依赖 Maven、Gradle 或第三方
@@ -8,6 +14,17 @@ Java Web 框架。网站必须登录后使用，每位用户的成绩、游玩�
 > [!IMPORTANT]
 > 这是非官方社区项目，与 SEGA、华立科技、Diving-Fish 或 LXNS 无隶属关系。
 > 微信公众号页面或第三方 API 改版后，同步功能可能需要跟随调整。
+
+## 快速导航
+
+- [主要功能](#主要功能)
+- [快速开始](#快速开始)
+- [配置邮箱验证](#配置邮箱验证)
+- [局域网访问](#局域网访问)
+- [同步公开曲库与封面](#同步公开曲库与封面)
+- [微信公众号成绩同步](#微信公众号成绩同步可选)
+- [开发与测试](#开发与测试)
+- [常见问题](#常见问题)
 
 ## 主要功能
 
@@ -65,6 +82,17 @@ http://localhost:8080
 ```
 
 `8081` 固定保留给微信公众号 Helper，不能作为网站端口使用。
+
+### 页面入口
+
+| 地址 | 内容 |
+| --- | --- |
+| `/` | 舞萌 DX 分数构成、成绩列表和游玩记录 |
+| `/chunithm.html` | 中二节奏分数构成、成绩列表和游玩记录 |
+| `/sync.html` | 微信公众号成绩同步 |
+| `/profile.html` | 头像、昵称、邮箱、密码、背景和账号管理 |
+
+所有页面都要求登录。未登录或旧账号尚未绑定邮箱时，后端会限制成绩和同步接口。
 
 ## 配置邮箱验证
 
@@ -168,6 +196,45 @@ chumai_rating_calc/
 
 更完整的实现规则与数据格式说明见 [说明文件.txt](说明文件.txt)。
 
+## 开发与测试
+
+Java 业务源码和测试源码都使用默认包，测试类各自提供 `main` 方法，不依赖 JUnit。可在
+PowerShell 中编译并运行全部 Java 测试：
+
+```powershell
+$testOut = Join-Path $env:TEMP "chumai-rating-tests"
+$mainSources = @(Get-ChildItem .\src\main\java\*.java | ForEach-Object FullName)
+$testFiles = @(Get-ChildItem .\src\test\java\*Test.java | Sort-Object Name)
+$testSources = @($testFiles | ForEach-Object FullName)
+
+Remove-Item $testOut -Recurse -Force -ErrorAction SilentlyContinue
+New-Item $testOut -ItemType Directory | Out-Null
+try {
+    javac --release 26 -Xlint:all -encoding UTF-8 `
+        -d $testOut $mainSources $testSources
+    if ($LASTEXITCODE -ne 0) { throw "Java 测试编译失败" }
+
+    foreach ($test in $testFiles) {
+        java -cp $testOut $test.BaseName
+        if ($LASTEXITCODE -ne 0) { throw "$($test.BaseName) 失败" }
+    }
+} finally {
+    Remove-Item $testOut -Recurse -Force -ErrorAction SilentlyContinue
+}
+```
+
+已经安装 Node.js 时，可运行根目录中不依赖 npm 包的前端契约测试：
+
+```powershell
+Get-ChildItem .\*Test.js | Sort-Object Name | ForEach-Object {
+    node $_.FullName
+    if ($LASTEXITCODE -ne 0) { throw "$($_.Name) 失败" }
+}
+```
+
+提交前至少确认 Java 全量编译通过、所有测试通过，并检查 `git status` 中没有
+`verifycaton_email.env`、`user_data/`、Cookie、OAuth 地址或一次性令牌。
+
 ## 数据与备份
 
 - `user_data/`：账号、邮箱映射、成绩、游玩记录、头像和自定义背景，必须定期备份
@@ -193,3 +260,66 @@ OAuth 会话中读取。
 Cloudflare Workers。若要公开部署，应将 Java 后端放在支持 JDK 26 和持久化磁盘的服务器上，
 再使用 Cloudflare 提供域名、HTTPS 或反向代理。
 
+本仓库不应直接塞入完整 JDK：用户应自行安装 JDK 26。常见完整 JDK 包含超过 GitHub
+普通单文件 100 MiB 上限的文件，也会让仓库体积大幅增加。
+
+## 常见问题
+
+### `java` 或 `javac` 无法识别
+
+安装 JDK 26，将其 `bin` 目录加入系统 `PATH`，关闭并重新打开 PowerShell，再运行
+`java -version` 与 `javac -version`。只有 JRE、版本低于 26 或仅设置 `JAVA_HOME` 而未更新
+`PATH` 都不足以运行当前编译脚本。
+
+### 电脑可以打开，手机无法访问网站
+
+确认手机与电脑位于同一局域网、Windows 网络类型为“专用网络”，并重新运行
+`.\setup-lan-access.ps1`。访问地址应填写电脑当前私网 IPv4，而不是 `127.0.0.1`。
+
+### Helper 根地址返回 `403`
+
+这是正常的最小权限行为。Helper 不提供普通网页，只接受网站创建的短时 `/start` 地址、
+受审计的 Wahlap OAuth 回调和同源进度轮询。检查状态应访问同步页或 Helper 的 `/health`。
+
+### 微信同步出现 `502`、`504` 或 `ERR_EMPTY_RESPONSE`
+
+- 停止会抢占系统代理的 Fiddler 等工具
+- 确认 Clash 使用规则模式，并已激活网站生成的配置
+- Wahlap 规则必须保留 `DST-PORT,80`，并放在 `MATCH` 等终止规则之前
+- Helper 只使用 HTTP `8081`，不要改成 SOCKS5 或虚构第二个端口
+- 重启 Helper 后重新创建会话，不要复用旧 `/start` 地址或 OAuth 回调链接
+
+完整排查步骤以 [微信公众号 Helper 文档](wechat-helper/README.md) 为准。
+
+### 收不到邮箱验证码
+
+检查 `verifycaton_email.env` 的主机、端口、安全模式、发件地址和应用专用密码，确认配置不是
+示例占位值，然后重启网站。第三方 SMTP 应使用 `STARTTLS` 或 `SSL`。
+
+### 曲库或封面缺失
+
+运行 `.\sync-song-catalogs.ps1`。若公共 API 在当前网络不可达，可显式填写 Clash HTTP 代理。
+同步失败不会覆盖上一份通过校验的曲库；再次运行会继续补齐尚未下载的封面。
+
+## 安全与隐私
+
+- 不要公开包含 `sessionId`、`token`、`code` 或 `state` 的同步／OAuth URL
+- 不要提交 `verifycaton_email.env`、`user_data/`、抓包文件或带 Cookie 的网页内容
+- 网站与 Helper 的防火墙规则只应开放给可信的本地子网，不要直接暴露到公网
+- Helper 授权完成后应退出官方页面；一次性会话过期后重新创建，不复用旧凭证
+- 对外部署时必须配置 HTTPS、可信反向代理、持久化备份和额外的访问控制
+
+## 反馈与贡献
+
+提交问题时请提供：游戏类型、复现步骤、预期结果、实际结果、JDK/Python 版本及已经脱敏的
+控制台错误。请先删除截图或日志中的用户名、邮箱、Cookie、OAuth 参数和一次性令牌。
+
+修改曲库匹配逻辑时，必须继续以 SongID 作为唯一歌曲标识；标题与别名只能用于寻找候选项，
+不能取代 SongID 持久化。修改成绩合并逻辑时，应保持“完全相同则忽略，冲突时取最高成绩”的
+现有规则，并同时补充舞萌与中二对应测试。
+
+## 第三方内容说明
+
+歌曲信息、封面、游戏名称、图标与相关素材的权利归各自权利人所有。Diving-Fish、LXNS 和
+华立官方页面的数据使用应遵守各自服务条款与访问限制。本项目仅用于个人成绩管理、学习和
+研究，不保证第三方服务永久可用。
