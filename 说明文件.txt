@@ -5,6 +5,7 @@ maimai DX B50 工作台 - 项目说明
 - JDK 26
 - Windows PowerShell
 - 仅使用 JDK 标准库，不依赖 Maven、Gradle 或第三方 Web 框架
+- 业务源码位于 src/main/java，测试源码位于 src/test/java
 
 二、启动网页
 
@@ -22,8 +23,8 @@ maimai DX B50 工作台 - 项目说明
 
 8081 固定保留给可选的舞萌 DX／中二节奏微信同步 Helper，run-web.ps1 会拒绝让网站占用该端口。
 
-也可以手动编译并运行 WebServer.java。WebServer 必须从项目根目录启动，
-因为静态资源位于 web 目录。
+也可以手动编译 src/main/java/WebServer.java 及其依赖。WebServer 必须从项目根目录启动，
+因为静态资源位于 web 目录；推荐直接使用 run-web.ps1，脚本会自动递归编译业务源码。
 
 首次开放注册前，需要在项目根目录填写邮件验证配置：
 
@@ -345,6 +346,8 @@ Diving-Fish 提供谱面音符数，LXNS 提供基础 SongID、当前曲名、�
 其他用户数据不会被触碰。
 
 七、主要文件
+
+以下业务类均位于 src/main/java，测试类均位于 src/test/java：
 
 - WebServer.java：HTTP 服务、静态资源服务及 B50 API
 - B50Calculator.java：B35 + B15 选择与排序

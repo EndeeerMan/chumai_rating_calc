@@ -16,17 +16,18 @@ param(
 
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$sourceDirectory = Join-Path $projectRoot "src\main\java"
 $buildDirectory = Join-Path $env:TEMP (
     "song-catalog-sync-" + [Guid]::NewGuid().ToString("N"))
 $sources = @(
-    (Join-Path $projectRoot "Json.java"),
-    (Join-Path $projectRoot "SongCatalog.java"),
-    (Join-Path $projectRoot "ChunithmCatalog.java"),
-    (Join-Path $projectRoot "SongCatalogSync.java"),
-    (Join-Path $projectRoot "LxnsCoverService.java"),
-    (Join-Path $projectRoot "MaimaiCoverService.java"),
-    (Join-Path $projectRoot "ChunithmCoverService.java"),
-    (Join-Path $projectRoot "SongCoverSync.java")
+    (Join-Path $sourceDirectory "Json.java"),
+    (Join-Path $sourceDirectory "SongCatalog.java"),
+    (Join-Path $sourceDirectory "ChunithmCatalog.java"),
+    (Join-Path $sourceDirectory "SongCatalogSync.java"),
+    (Join-Path $sourceDirectory "LxnsCoverService.java"),
+    (Join-Path $sourceDirectory "MaimaiCoverService.java"),
+    (Join-Path $sourceDirectory "ChunithmCoverService.java"),
+    (Join-Path $sourceDirectory "SongCoverSync.java")
 )
 
 function Format-SyncTime {

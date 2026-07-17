@@ -12,12 +12,14 @@ param(
 $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $outputDirectory = Join-Path $projectRoot "out"
-$sourceFiles = Get-ChildItem -LiteralPath $projectRoot -Filter "*.java" -File |
-    Where-Object { $_.Name -notlike "*Test.java" } |
-    ForEach-Object { $_.FullName }
+$sourceDirectory = Join-Path $projectRoot "src\main\java"
+$sourceFiles = @(
+    Get-ChildItem -LiteralPath $sourceDirectory -Filter "*.java" -File -Recurse |
+        ForEach-Object { $_.FullName }
+)
 
 if ($sourceFiles.Count -eq 0) {
-    throw "No Java source files were found."
+    throw "No Java source files were found in $sourceDirectory."
 }
 
 if (Test-Path -LiteralPath $outputDirectory) {
