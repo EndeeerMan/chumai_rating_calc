@@ -1,0 +1,440 @@
+:root {
+  --surface: rgba(255, 255, 255, 0.7);
+  --surface-alt: rgba(248, 250, 249, 0.6);
+  --surface-muted: rgba(239, 244, 242, 0.62);
+  --glass-surface: rgba(255, 255, 255, 0.58);
+  --glass-surface-strong: rgba(255, 255, 255, 0.78);
+  --glass-border: rgba(255, 255, 255, 0.5);
+  --glass-blur: 16px;
+}
+
+body.maimai-page,
+body.sync-page,
+body.profile-page {
+  --page-background-desktop: url("/assets/backgrounds/maimai-desktop.png");
+  --page-background-mobile: url("/assets/backgrounds/maimai-mobile.jpg");
+  --page-background-position: center center;
+}
+
+body.chunithm-page {
+  --page-background-desktop: url("/assets/backgrounds/chunithm-desktop.png");
+  --page-background-mobile: url("/assets/backgrounds/chunithm-mobile.jpg");
+  --page-background-position: center center;
+}
+
+body.sync-page.sync-chunithm-background {
+  --page-background-desktop: url("/assets/backgrounds/chunithm-desktop.png");
+  --page-background-mobile: url("/assets/backgrounds/chunithm-mobile.jpg");
+}
+
+body.maimai-page,
+body.chunithm-page,
+body.sync-page,
+body.profile-page {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+  background: transparent;
+}
+
+body.auth-checking {
+  overflow: hidden;
+}
+
+body.auth-checking > .topbar,
+body.auth-checking > main,
+body.auth-checking > footer,
+body.auth-checking > dialog {
+  visibility: hidden;
+}
+
+.auth-startup-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 9px;
+  padding: 24px;
+  background: rgba(244, 249, 247, 0.9);
+  color: var(--ink, var(--text));
+  text-align: center;
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.auth-startup-mask[hidden] {
+  display: none;
+}
+
+.auth-startup-mask strong {
+  font-size: 20px;
+}
+
+.auth-startup-mask p {
+  margin: 0;
+  color: var(--muted, var(--text-muted));
+  font-size: 13px;
+}
+
+.auth-startup-spinner {
+  width: 32px;
+  height: 32px;
+  border: 4px solid rgba(17, 124, 111, 0.2);
+  border-top-color: var(--teal, var(--primary));
+  border-radius: 50%;
+  animation: auth-startup-spin 850ms linear infinite;
+}
+
+@keyframes auth-startup-spin {
+  to { transform: rotate(360deg); }
+}
+
+body.maimai-page::before,
+body.chunithm-page::before,
+body.sync-page::before,
+body.profile-page::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  pointer-events: none;
+  background-color: #eef4f2;
+  background-image: var(--page-background-desktop);
+  background-position: var(--page-background-position);
+  background-repeat: no-repeat;
+  background-size: cover;
+}
+
+body.maimai-page.has-maimai-background::before,
+body.profile-page.has-maimai-background::before,
+body.sync-page.has-maimai-background:not(.sync-chunithm-background)::before {
+  background-image: url("/api/user/profile/background?game=maimai");
+}
+
+body.chunithm-page.has-chunithm-background::before,
+body.sync-page.sync-chunithm-background.has-chunithm-background::before {
+  background-image: url("/api/user/profile/background?game=chunithm");
+}
+
+body.maimai-page::after,
+body.chunithm-page::after,
+body.sync-page::after,
+body.profile-page::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    rgba(247, 252, 250, 0.1),
+    rgba(237, 246, 243, 0.04) 48%,
+    rgba(244, 249, 247, 0.12)
+  );
+}
+
+.topbar,
+.summary-band,
+.score-pool-section,
+.score-list-toolbar,
+.play-history-overview-item,
+.table-shell,
+.modal,
+.confirm-modal,
+.score-detail-modal,
+.chuni-note,
+.auth-banner,
+.sync-workspace,
+.step-card,
+.session-box,
+.upload-queue,
+.profile-card,
+.profile-hero {
+  border-color: var(--glass-border);
+  background-color: var(--glass-surface);
+  box-shadow: 0 12px 34px rgba(28, 42, 39, 0.11);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.08);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.08);
+}
+
+.topbar {
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.game-switcher,
+.segmented-control,
+.tabs,
+.auth-mode-switch {
+  background-color: rgba(238, 244, 242, 0.56);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+}
+
+.button-secondary,
+.search-control,
+select,
+input,
+textarea,
+.copy-field,
+.proxy-value,
+.queue-item {
+  background-color: var(--glass-surface-strong);
+}
+
+/* Score cards are the one deliberately opaque surface over the artwork. */
+button.lxns-score-card,
+body.chunithm-page #score-composition-panel button.lxns-score-card {
+  background-color: #1e2423;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.lxns-score-card-item,
+body.chunithm-page #score-composition-panel .lxns-score-card-item {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.account-avatar {
+  overflow: hidden;
+}
+
+.account-avatar img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+}
+
+.account-link {
+  cursor: pointer !important;
+}
+
+.header-tools-menu {
+  position: relative;
+}
+
+.header-tools-menu > summary {
+  list-style: none;
+}
+
+.header-tools-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.header-tools-popover {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.auth-register-fields {
+  display: grid;
+  gap: 15px;
+  min-width: 0;
+}
+
+.auth-register-fields[hidden] {
+  display: none;
+}
+
+.verification-input-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+}
+
+.verification-input-row .button {
+  min-height: 42px;
+  white-space: nowrap;
+}
+
+.verification-status {
+  min-height: 18px;
+  margin: -5px 0 0;
+  color: var(--muted, var(--text-muted));
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+@media (min-width: 761px) {
+  .header-tools-menu > summary {
+    display: none;
+  }
+
+  .header-tools-menu:not([open]) > .header-tools-popover {
+    display: flex !important;
+  }
+}
+
+@media (max-width: 760px) {
+  body.maimai-page::before,
+  body.chunithm-page::before,
+  body.sync-page::before,
+  body.profile-page::before {
+    background-image: var(--page-background-mobile);
+  }
+
+  body.maimai-page.has-maimai-background::before,
+  body.profile-page.has-maimai-background::before,
+  body.sync-page.has-maimai-background:not(.sync-chunithm-background)::before {
+    background-image: url("/api/user/profile/background?game=maimai");
+  }
+
+  body.chunithm-page.has-chunithm-background::before,
+  body.sync-page.sync-chunithm-background.has-chunithm-background::before {
+    background-image: url("/api/user/profile/background?game=chunithm");
+  }
+
+  .topbar {
+    position: sticky;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "brand actions"
+      "navigation navigation";
+    gap: 9px 12px;
+    padding: 10px 12px;
+  }
+
+  .topbar > .brand {
+    grid-area: brand;
+    min-width: 0;
+    min-height: 44px;
+  }
+
+  .topbar > .game-switcher {
+    grid-area: navigation;
+    order: initial;
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin: 0;
+    overflow: hidden;
+  }
+
+  .game-switcher a {
+    min-width: 0;
+    min-height: 44px;
+    justify-content: center;
+    padding-inline: 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .topbar > .header-actions {
+    grid-area: actions;
+    width: auto;
+    justify-self: end;
+    justify-content: flex-end;
+    gap: 8px;
+    overflow: visible;
+    padding: 0;
+  }
+
+  .header-actions > .sync-status {
+    display: none;
+  }
+
+  .topbar .header-actions .button-account {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    max-width: 44px;
+    min-height: 44px;
+    padding: 8px;
+    border-radius: 50%;
+    overflow: hidden;
+  }
+
+  .button-account > span:last-child {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+
+  .topbar .account-avatar {
+    width: 28px;
+    height: 28px;
+    flex-basis: 28px;
+  }
+
+  .topbar .header-tools-menu > summary {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    max-width: 44px;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .topbar .header-tools-menu {
+    position: static;
+  }
+
+  .header-tools-popover {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 12px;
+    z-index: 40;
+    width: max-content;
+    min-width: 148px;
+    max-width: calc(100vw - 24px);
+    display: grid;
+    gap: 7px;
+    padding: 9px;
+    border: 1px solid var(--glass-border);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.86);
+    box-shadow: 0 15px 38px rgba(22, 34, 31, 0.2);
+    -webkit-backdrop-filter: blur(18px);
+    backdrop-filter: blur(18px);
+  }
+
+  .header-tools-popover .button {
+    width: 100%;
+    min-height: 44px;
+    padding-inline: 12px;
+  }
+
+  .verification-input-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .verification-input-row .button {
+    width: 100%;
+  }
+}
+
+@media (max-width: 360px) {
+  .brand-copy strong {
+    font-size: 15px;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --surface: rgba(255, 255, 255, 0.96);
+    --surface-alt: rgba(248, 250, 249, 0.94);
+    --surface-muted: rgba(239, 244, 242, 0.94);
+    --glass-surface: rgba(255, 255, 255, 0.94);
+    --glass-surface-strong: rgba(255, 255, 255, 0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-startup-spinner {
+    animation: none;
+  }
+}

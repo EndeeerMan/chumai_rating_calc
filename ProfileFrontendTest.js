@@ -1,0 +1,248 @@
+"use strict";
+
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const test = require("node:test");
+
+const root = __dirname;
+const webRoot = path.join(root, "web");
+const readWeb = (name) => fs.readFileSync(path.join(webRoot, name), "utf8");
+const profileHtml = readWeb("profile.html");
+const profileCss = readWeb("profile.css");
+const profileJs = readWeb("profile.js");
+const themeCss = readWeb("theme.css");
+const userThemeJs = readWeb("user-theme.js");
+const authEmailJs = readWeb("auth-email.js");
+const mainCss = readWeb("styles.css");
+const syncCss = readWeb("sync.css");
+const pages = new Map([
+  ["index.html", readWeb("index.html")],
+  ["chunithm.html", readWeb("chunithm.html")],
+  ["sync.html", readWeb("sync.html")],
+  ["profile.html", profileHtml]
+]);
+const authScripts = new Map([
+  ["app.js", readWeb("app.js")],
+  ["chunithm.js", readWeb("chunithm.js")],
+  ["sync.js", readWeb("sync.js")]
+]);
+
+function sourceBetween(source, startMarker, endMarker) {
+  const start = source.indexOf(startMarker);
+  const end = source.indexOf(endMarker, start);
+  assert.ok(start >= 0 && end > start, `无法提取 ${startMarker}`);
+  return source.slice(start, end);
+}
+
+function countMatches(source, expression) {
+  return Array.from(source.matchAll(expression)).length;
+}
+
+test("四张默认背景均为项目内有效图片资产", () => {
+  const assets = [
+    ["assets/backgrounds/maimai-desktop.png", "png"],
+    ["assets/backgrounds/maimai-mobile.jpg", "jpeg"],
+    ["assets/backgrounds/chunithm-desktop.png", "png"],
+    ["assets/backgrounds/chunithm-mobile.jpg", "jpeg"]
+  ];
+  for (const [relativePath, type] of assets) {
+    const contents = fs.readFileSync(path.join(webRoot, ...relativePath.split("/")));
+    assert.ok(contents.length > 1024, `${relativePath} 不能是空壳图片`);
+    assert.equal(
+      contents.subarray(0, type === "png" ? 8 : 2).toString("hex"),
+      type === "png" ? "89504e470d0a1a0a" : "ffd8"
+    );
+    assert.ok(themeCss.includes(`url("/${relativePath}")`));
+  }
+  const appearance = `${themeCss}\n${userThemeJs}\n${profileHtml}\n${profileJs}`;
+  assert.doesNotMatch(appearance, /(?:file:\/\/|[A-Za-z]:\\)/i);
+  assert.doesNotMatch(appearance, /url\(["']?https?:\/\//i);
+});
+
+test("四页加载共用主题并保留响应式默认背景", () => {
+  const bodyClasses = {
+    "index.html": "maimai-page",
+    "chunithm.html": "chunithm-page",
+    "sync.html": "sync-page",
+    "profile.html": "profile-page"
+  };
+  for (const [name, html] of pages) {
+    const extraClass = name === "profile.html" ? "" : " auth-checking";
+    assert.match(html, new RegExp(`<body class="${bodyClasses[name]}${extraClass}">`));
+    assert.match(html, /<link rel="stylesheet" href="theme\.css">/);
+    assert.match(html, /<script src="user-theme\.js" defer><\/script>/);
+  }
+  assert.match(themeCss, /body\.maimai-page,[\s\S]*body\.profile-page\s*\{[^}]*maimai-desktop\.png[^}]*maimai-mobile\.jpg/s);
+  assert.match(themeCss, /body\.chunithm-page\s*\{[^}]*chunithm-desktop\.png[^}]*chunithm-mobile\.jpg/s);
+  assert.match(themeCss, /@media \(max-width:\s*760px\)[\s\S]*background-image:\s*var\(--page-background-mobile\);/s);
+  assert.match(themeCss, /background-size:\s*cover;/);
+});
+
+test("舞萌和中二背景独立存储、独立选择且兼容旧舞萌字段", () => {
+  assert.match(themeCss, /has-maimai-background[\s\S]*background\?game=maimai/s);
+  assert.match(themeCss, /has-chunithm-background[\s\S]*background\?game=chunithm/s);
+  assert.match(themeCss, /body\.profile-page\.has-maimai-background::before/);
+  assert.match(themeCss, /body\.sync-page\.has-maimai-background:not\(\.sync-chunithm-background\)::before/);
+  assert.match(themeCss, /body\.sync-page\.sync-chunithm-background\.has-chunithm-background::before/);
+  assert.match(userThemeJs, /backgroundUrls:\s*\{[\s\S]*maimai:[\s\S]*chunithm:/s);
+  assert.match(userThemeJs, /value\?\.backgroundUrl/);
+  assert.match(userThemeJs, /has-maimai-background/);
+  assert.match(userThemeJs, /has-chunithm-background/);
+  assert.match(userThemeJs, /classList\.remove\("has-maimai-background", "has-chunithm-background"\)/);
+  assert.match(authScripts.get("sync.js"), /sync-chunithm-background/);
+  assert.doesNotMatch(userThemeJs, /style\.background(?:Image)?\s*=/);
+});
+
+test("普通容器提高透明度而带封面成绩卡保持完全不透明", () => {
+  assert.match(themeCss, /--glass-surface:\s*rgba\(255,\s*255,\s*255,\s*0\.58\);/);
+  assert.match(themeCss, /\.topbar,[\s\S]*\.profile-hero\s*\{[^}]*background-color:\s*var\(--glass-surface\);[^}]*backdrop-filter:/s);
+  assert.match(themeCss, /button\.lxns-score-card,[\s\S]*background-color:\s*#1e2423;[^}]*-webkit-backdrop-filter:\s*none;[^}]*backdrop-filter:\s*none;/s);
+});
+
+test("手机顶栏为两行布局并避免窄屏横向溢出", () => {
+  for (const [name, html] of pages) {
+    const header = html.match(/<header class="topbar">[\s\S]*?<\/header>/)?.[0] || "";
+    assert.match(header, /<nav class="game-switcher" aria-label="游戏切换">/);
+    assert.equal(countMatches(header, /<a(?:\s[^>]*)?href="\/(?:"|chunithm\.html"|sync\.html")/g), 3, name);
+  }
+  const mobile = sourceBetween(themeCss, "@media (max-width: 760px)", "@media (max-width: 360px)");
+  assert.match(mobile, /grid-template-areas:\s*"brand actions"\s*"navigation navigation";/s);
+  assert.match(mobile, /grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/);
+  assert.match(mobile, /\.verification-input-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s);
+  for (const css of [mainCss, syncCss]) assert.match(css, /\.game-switcher a\s*\{[^}]*white-space:\s*nowrap;/s);
+});
+
+test("资料页提供两套背景上传与恢复操作", () => {
+  for (const game of ["maimai", "chunithm"]) {
+    assert.match(profileHtml, new RegExp(`id="${game}-background-preview"`));
+    assert.match(profileHtml, new RegExp(`id="${game}-background-input" type="file" accept="image/png,image/jpeg" hidden`));
+    assert.match(profileHtml, new RegExp(`id="remove-${game}-background-button"`));
+  }
+  assert.equal(countMatches(profileHtml, /<article class="background-editor"/g), 2);
+  assert.equal(countMatches(profileHtml, /<\/article>/g), 2);
+  assert.match(profileJs, /backgroundEndpoint\(game\)/);
+  assert.match(profileJs, /uploadImage\(backgroundEndpoint\(game\), file/);
+  assert.match(profileJs, /removeImage\(backgroundEndpoint\(game\)/);
+});
+
+test("邮箱必须绑定且可验证换绑，未绑定时仍保留退出与注销逃生口", () => {
+  assert.match(profileHtml, /<form id="email-form"/);
+  assert.match(profileHtml, /id="email-address"[^>]*type="email"[^>]*required/s);
+  assert.match(profileHtml, /id="email-verification-code"[^>]*pattern="\[0-9\]\{6\}"[^>]*maxlength="6"/s);
+  assert.match(profileHtml, /id="email-current-password"[^>]*autocomplete="current-password"[^>]*required/s);
+  assert.match(profileHtml, /id="email-required-notice"[^>]*role="alert"[^>]*hidden/s);
+  assert.ok(countMatches(profileHtml, /data-email-protected/g) >= 4);
+  const logoutSection = profileHtml.match(/<section class="profile-card profile-card-wide danger-zone" aria-labelledby="session-title">[\s\S]*?<\/section>/)?.[0] || "";
+  assert.doesNotMatch(logoutSection, /data-email-protected/);
+  const deleteSection = profileHtml.match(/<section class="profile-card profile-card-wide danger-zone" aria-labelledby="delete-account-title">[\s\S]*?<\/section>/)?.[0] || "";
+  assert.doesNotMatch(deleteSection, /data-email-protected/);
+  assert.match(profileJs, /const EMAIL_ENDPOINT = "\/api\/user\/email";/);
+  assert.match(profileJs, /requestJson\(EMAIL_ENDPOINT, \{ method: "GET" \}\)/);
+  assert.match(profileJs, /body:\s*JSON\.stringify\(\{ email, verificationCode, currentPassword \}\)/);
+  assert.match(profileJs, /querySelectorAll\("\[data-email-protected\]"\)/);
+  assert.match(profileJs, /section\.hidden = emailState\.required/);
+});
+
+test("邮箱验证码为六位、十分钟有效且重发冷却 120 秒", () => {
+  assert.match(profileJs, /const EMAIL_CODE_RESEND_SECONDS = 120;/);
+  assert.match(profileJs, /const EMAIL_CODE_ENDPOINT = "\/api\/auth\/email\/code";/);
+  assert.match(profileJs, /body:\s*JSON\.stringify\(\{ email, purpose: "bind" \}\)/);
+  assert.match(profileJs, /\/\^\\d\{6\}\$\/u\.test\(verificationCode\)/);
+  assert.match(profileJs, /10 分钟内有效/);
+  assert.match(profileJs, /2 分钟/);
+  assert.match(authEmailJs, /const RESEND_SECONDS = 120;/);
+  assert.match(authEmailJs, /const CODE_PATTERN = \/\^\\d\{6\}\$\/u;/);
+  assert.match(authEmailJs, /const FLOW_ID_PATTERN = \/\^\[0-9a-f\]/);
+  assert.match(authEmailJs, /body:\s*JSON\.stringify\(\{ email, purpose: "register" \}\)/);
+  assert.match(authEmailJs, /payload\?\.verificationFlowId/);
+  assert.match(authEmailJs, /return \{ email, verificationCode, verificationFlowId \};/);
+  assert.match(authEmailJs, /normalizedEmail\(\) !== flowEmail/);
+  assert.match(authEmailJs, /emailInput\.disabled = !active/);
+  assert.match(authEmailJs, /codeInput\.disabled = !active/);
+  assert.match(authEmailJs, /验证码已发送，10 分钟内有效/);
+});
+
+test("资料页支持带双重确认的账号注销", () => {
+  assert.match(profileHtml, /<form id="delete-account-form"/);
+  assert.match(profileHtml, /id="delete-current-password"[^>]*autocomplete="current-password"[^>]*required/s);
+  assert.match(profileHtml, /id="delete-username-confirmation"[^>]*autocomplete="off"[^>]*required/s);
+  assert.match(profileJs, /const ACCOUNT_ENDPOINT = "\/api\/user\/account";/);
+  assert.match(profileJs, /confirmation !== profile\.username/);
+  assert.doesNotMatch(
+    sourceBetween(profileJs, 'elements.deleteAccountForm.addEventListener("submit"', 'window.addEventListener("pagehide"'),
+    /emailState\?\.required/
+  );
+  assert.match(profileJs, /requestJson\(ACCOUNT_ENDPOINT, \{[\s\S]*method:\s*"DELETE"[\s\S]*body:\s*JSON\.stringify\(\{ currentPassword \}\)/s);
+  assert.match(profileJs, /window\.B50ProfileTheme\?\.clear\(\);[\s\S]*window\.location\.replace\("\/"\);/s);
+});
+
+test("三个注册入口都要求邮箱验证码，登录允许用户名或邮箱", () => {
+  for (const name of ["index.html", "chunithm.html", "sync.html"]) {
+    const html = pages.get(name);
+    assert.match(html, /id="auth-identity-label">用户名或邮箱/);
+    assert.match(html, /id="auth-email"[^>]*type="email"/);
+    assert.match(html, /id="auth-verification-code"[^>]*pattern="\[0-9\]\{6\}"/);
+    assert.match(html, /id="send-auth-code-button"/);
+    assert.match(html, /<script src="auth-email\.js" defer><\/script>/);
+  }
+  for (const [name, js] of authScripts) {
+    assert.match(js, /createRegistrationController/);
+    assert.match(js, /authEmailController\.setActive\(registering\)/);
+    assert.match(js, /authEmailController\.registrationFields\(\)/);
+    assert.match(js, /JSON\.stringify\(\{ username, password, \.\.\.registrationFields \}\)/);
+    assert.match(js, /const registering = state\.authMode === "register";/, name);
+  }
+});
+
+test("登录状态和登录结果遇到 emailRequired 都强制进入绑定页", () => {
+  for (const [name, js] of authScripts) {
+    assert.match(js, /payload\?\.emailRequired === true \|\| payload\?\.user\?\.emailRequired === true/, name);
+    assert.match(js, /window\.location\.replace\("\/profile\.html\?bindEmail=1"\)/, name);
+    assert.ok(countMatches(js, /redirectIfEmailRequired\(payload\)/g) >= 2, name);
+  }
+  assert.match(profileJs, /auth\?\.emailRequired === true \|\| auth\?\.user\?\.emailRequired === true/);
+});
+
+test("资料页先验登录，头像与双背景使用原始 File 上传", () => {
+  const loadProfile = sourceBetween(profileJs, "async function loadProfile()", "elements.nicknameForm.addEventListener");
+  assert.ok(loadProfile.indexOf("requestJson(AUTH_STATUS_ENDPOINT") < loadProfile.indexOf("requestJson(EMAIL_ENDPOINT"));
+  assert.match(loadProfile, /window\.location\.replace\("\/"\)/);
+  const upload = sourceBetween(profileJs, "async function uploadImage", "async function removeImage");
+  assert.match(upload, /method:\s*"PUT"/);
+  assert.match(upload, /headers:\s*\{ "Content-Type": file\.type \}/);
+  assert.match(upload, /body:\s*file/);
+  assert.doesNotMatch(upload, /JSON\.stringify|FormData|FileReader|base64/i);
+  assert.match(profileJs, /const AVATAR_MAX_BYTES = 5 \* 1024 \* 1024;/);
+  assert.match(profileJs, /const BACKGROUND_MAX_BYTES = 12 \* 1024 \* 1024;/);
+});
+
+test("预览资源会回收且前端不持久保存敏感资料", () => {
+  const preview = sourceBetween(profileJs, "function previewFile", "async function profileFromMutation");
+  assert.match(preview, /URL\.createObjectURL\(file\)/);
+  assert.match(preview, /URL\.revokeObjectURL\(url\)/);
+  assert.match(profileJs, /window\.addEventListener\("pagehide"[\s\S]*previewUrls\.clear\(\)/s);
+  const scripts = `${profileJs}\n${userThemeJs}\n${authEmailJs}`;
+  assert.doesNotMatch(scripts, /localStorage|sessionStorage|indexedDB|document\.cookie/i);
+  assert.doesNotMatch(scripts, /innerHTML\s*=/);
+});
+
+test("资料表单与双背景在手机上收为单列", () => {
+  assert.match(profileCss, /@media \(max-width:\s*700px\)[\s\S]*\.profile-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s);
+  assert.match(profileCss, /@media \(max-width:\s*700px\)[\s\S]*\.email-form,[\s\S]*\.delete-account-form\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s);
+  assert.match(profileCss, /@media \(max-width:\s*700px\)[\s\S]*\.background-editors-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);/s);
+  assert.match(profileCss, /\.email-code-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\) auto;/s);
+  const ids = Array.from(profileHtml.matchAll(/\sid="([^"]+)"/g), (match) => match[1]);
+  assert.equal(new Set(ids).size, ids.length, "资料页不能出现重复 id");
+});
+
+test("新增前端脚本语法有效", () => {
+  for (const [name, source] of [
+    ["profile.js", profileJs],
+    ["user-theme.js", userThemeJs],
+    ["auth-email.js", authEmailJs],
+    ...authScripts
+  ]) {
+    assert.doesNotThrow(() => new Function(source), name);
+  }
+});

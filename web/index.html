@@ -1,0 +1,459 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#117c6f">
+  <title>maimai DX B50 工作台</title>
+  <link rel="icon" href="/assets/maimai-mark.png" type="image/png">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="lxns-score.css">
+  <link rel="stylesheet" href="theme.css">
+</head>
+<body class="maimai-page auth-checking">
+  <header class="topbar">
+    <a class="brand" href="#main" aria-label="maimai DX B50 工作台">
+      <img class="brand-mark" src="/assets/maimai-mark.png" width="40" height="40"
+        alt="" aria-hidden="true">
+      <span class="brand-copy">
+        <strong>舞萌 DX</strong>
+      </span>
+    </a>
+
+    <nav class="game-switcher" aria-label="游戏切换">
+      <a class="is-active" href="/" aria-current="page">舞萌 DX</a>
+      <a href="/chunithm.html">中二节奏</a>
+      <a href="/sync.html">同步游戏数据</a>
+    </nav>
+
+    <div class="header-actions">
+      <span class="sync-status" id="sync-status" role="status">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="sync-status-text">本地计算</span>
+      </span>
+      <div class="account-control">
+        <button class="button button-account" id="account-button" type="button" aria-haspopup="dialog">
+          <span class="account-avatar" aria-hidden="true">游</span>
+          <span id="account-label">登录 / 注册</span>
+        </button>
+      </div>
+      <details class="header-tools-menu">
+        <summary class="button button-secondary" aria-label="打开数据工具">工具</summary>
+        <div class="header-tools-popover">
+          <button class="button button-secondary" id="logout-button" type="button" hidden>退出</button>
+          <button class="button button-secondary" id="import-button" type="button">导入 CSV</button>
+          <button class="button button-secondary" id="export-button" type="button">导出 CSV</button>
+        </div>
+      </details>
+      <input id="csv-input" type="file" accept=".csv,text/csv" hidden>
+    </div>
+  </header>
+
+  <div class="auth-startup-mask" id="auth-startup-mask" role="status" aria-live="polite">
+    <span class="auth-startup-spinner" aria-hidden="true"></span>
+    <strong>正在确认账号</strong>
+    <p>正在安全读取登录状态，请稍候。</p>
+  </div>
+
+  <main id="main" class="app-shell">
+    <section class="summary-band" aria-label="B50 汇总">
+      <div class="summary-primary">
+        <span class="summary-label">总 Rating</span>
+        <strong id="total-rating">0</strong>
+        <span class="summary-meta" id="selected-count">已入选 0 / 50</span>
+      </div>
+      <div class="summary-item summary-old">
+        <span class="summary-label">旧曲 B35</span>
+        <strong id="old-rating">0</strong>
+        <span class="summary-meta" id="old-count">0 / 35</span>
+      </div>
+      <div class="summary-item summary-new">
+        <span class="summary-label">新曲 B15</span>
+        <strong id="new-rating">0</strong>
+        <span class="summary-meta" id="new-count">0 / 15</span>
+      </div>
+      <div class="summary-item summary-library">
+        <span class="summary-label">已保存成绩</span>
+        <strong id="library-count">0</strong>
+        <span class="summary-meta">条成绩</span>
+      </div>
+    </section>
+
+    <section class="library-section" aria-labelledby="composition-heading">
+      <div class="section-heading">
+        <div>
+          <span class="section-kicker">B50 成绩管理</span>
+          <h1 id="composition-heading">分数构成</h1>
+          <p class="auth-intro" id="storage-description">登录后使用个人成绩空间</p>
+        </div>
+        <div class="score-view-actions">
+          <div class="segmented-control score-view-control" role="tablist" aria-label="成绩视图">
+            <button id="composition-view-tab" type="button" role="tab" aria-selected="true"
+              aria-controls="composition-view-panel" class="is-active" data-score-view="composition">
+              分数构成
+            </button>
+            <button id="score-list-view-tab" type="button" role="tab" aria-selected="false"
+              aria-controls="score-list-view-panel" data-score-view="list">
+              成绩列表
+            </button>
+            <button id="play-history-view-tab" type="button" role="tab" aria-selected="false"
+              aria-controls="play-history-view-panel" data-score-view="history">
+              游玩记录
+            </button>
+          </div>
+          <button class="button button-primary" id="add-chart-button" type="button">
+            <span aria-hidden="true">＋</span> 添加成绩
+          </button>
+        </div>
+      </div>
+
+      <div class="score-composition" id="composition-view-panel">
+        <section class="summary-band score-composition-summary" aria-label="分数构成汇总">
+          <div class="summary-primary">
+            <span class="summary-label">DX Rating</span>
+            <strong id="composition-total-rating">0</strong>
+            <span class="summary-meta" id="composition-selected-count">已入选 0 / 50</span>
+          </div>
+          <div class="summary-item summary-old">
+            <span class="summary-label">旧曲 B35 合计</span>
+            <strong id="composition-old-total">0</strong>
+            <span class="summary-meta">平均 <span id="composition-old-average">—</span></span>
+          </div>
+          <div class="summary-item summary-new">
+            <span class="summary-label">新曲 B15 合计</span>
+            <strong id="composition-new-total">0</strong>
+            <span class="summary-meta">平均 <span id="composition-new-average">—</span></span>
+          </div>
+          <div class="summary-item summary-library">
+            <span class="summary-label">当前构成</span>
+            <strong id="composition-pool-count">0</strong>
+            <span class="summary-meta">张入选谱面</span>
+          </div>
+        </section>
+
+        <section class="score-pool-section score-pool-old" aria-labelledby="b35-composition-heading">
+          <div class="score-pool-heading">
+            <div>
+              <span class="section-kicker">旧曲池</span>
+              <h2 id="b35-composition-heading">B35 分数构成</h2>
+            </div>
+            <span id="b35-composition-count">0 / 35</span>
+          </div>
+          <div class="score-card-grid" id="b35-composition-list" role="list"></div>
+          <p class="score-pool-empty" id="b35-composition-empty">还没有入选旧曲成绩。</p>
+        </section>
+
+        <section class="score-pool-section score-pool-new" aria-labelledby="b15-composition-heading">
+          <div class="score-pool-heading">
+            <div>
+              <span class="section-kicker">新曲池</span>
+              <h2 id="b15-composition-heading">B15 分数构成</h2>
+            </div>
+            <span id="b15-composition-count">0 / 15</span>
+          </div>
+          <div class="score-card-grid" id="b15-composition-list" role="list"></div>
+          <p class="score-pool-empty" id="b15-composition-empty">还没有入选新曲成绩。</p>
+        </section>
+      </div>
+
+      <div class="score-list-view" id="score-list-view-panel" role="tabpanel"
+        aria-labelledby="score-list-view-tab" hidden>
+        <div class="score-list-toolbar" aria-label="成绩列表筛选">
+          <label class="search-control score-list-search">
+            <span aria-hidden="true">⌕</span>
+            <span class="visually-hidden">搜索成绩</span>
+            <input id="score-list-search-input" type="search" autocomplete="off"
+              placeholder="搜索曲名、SongID 或艺术家">
+          </label>
+          <label class="score-list-filter">
+            <span>版本</span>
+            <select id="score-list-version-filter">
+              <option value="all">全部版本</option>
+              <option value="current">新曲 · B15</option>
+              <option value="legacy">旧曲 · B35</option>
+            </select>
+          </label>
+          <label class="score-list-filter">
+            <span>难度</span>
+            <select id="score-list-difficulty-filter">
+              <option value="all">全部难度</option>
+              <option value="BASIC">BASIC</option>
+              <option value="ADVANCED">ADVANCED</option>
+              <option value="EXPERT">EXPERT</option>
+              <option value="MASTER">MASTER</option>
+              <option value="RE:MASTER">Re:MASTER</option>
+            </select>
+          </label>
+          <label class="score-list-filter">
+            <span>类型</span>
+            <select id="score-list-chart-type-filter">
+              <option value="all">STD + DX</option>
+              <option value="standard">STD</option>
+              <option value="dx">DX</option>
+            </select>
+          </label>
+          <label class="score-list-filter score-list-sort">
+            <span>排序</span>
+            <select id="score-list-sort">
+              <option value="rating">DX Rating 从高到低</option>
+              <option value="achievement">达成率从高到低</option>
+              <option value="level">定数从高到低</option>
+              <option value="title">曲名 A-Z</option>
+              <option value="songId">SongID</option>
+            </select>
+          </label>
+        </div>
+        <div class="score-list-summary" id="score-list-summary" role="status" aria-live="polite">
+          共 0 条成绩
+        </div>
+        <div class="score-card-grid score-list-grid" id="score-list-grid" role="list"
+          aria-label="全部成绩卡"></div>
+        <p class="score-pool-empty" id="score-list-empty" hidden>
+          没有符合筛选条件的成绩。
+        </p>
+        <nav class="score-list-pagination" id="score-list-pagination" aria-label="成绩列表分页" hidden>
+          <button class="button button-secondary" id="score-list-prev" type="button">上一页</button>
+          <span id="score-list-page-label">第 1 / 1 页</span>
+          <button class="button button-secondary" id="score-list-next" type="button">下一页</button>
+        </nav>
+      </div>
+
+      <div class="play-history-view" id="play-history-view-panel" role="tabpanel"
+        aria-labelledby="play-history-view-tab" hidden>
+        <div class="play-history-view-heading">
+          <div>
+            <span class="section-kicker">舞萌 NET</span>
+            <h2>游玩记录</h2>
+            <p>按时间显示同步到当前账号的最近游玩；点击一局查看完整结果。</p>
+          </div>
+          <button class="button button-secondary" id="refresh-play-history-button" type="button">刷新记录</button>
+        </div>
+        <p class="play-history-view-status" id="play-history-view-status" role="status" aria-live="polite">
+          切换到此页后读取游玩记录。
+        </p>
+        <ol class="play-history-overview-list" id="play-history-overview-list"></ol>
+        <div class="empty-state play-history-overview-empty" id="play-history-overview-empty" hidden>
+          <strong>暂无游玩记录</strong>
+          <span>完成一次微信公众号同步后，记录会显示在这里。</span>
+          <a class="button button-secondary" href="/sync.html">前往同步数据</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog class="modal score-detail-modal" id="score-detail-dialog"
+    aria-labelledby="score-detail-title" aria-describedby="score-detail-summary">
+    <div class="score-detail-shell">
+      <header class="modal-header">
+        <div>
+          <span class="section-kicker" id="score-detail-pool">分数构成</span>
+          <h2 id="score-detail-title">成绩详情</h2>
+          <p class="auth-intro" id="score-detail-summary">已保存成绩与已抓取的逐局玩家判定</p>
+        </div>
+        <div class="row-actions" aria-label="成绩操作">
+          <button class="icon-button" id="edit-score-detail-button" type="button"
+            aria-label="编辑这条成绩" title="编辑成绩">✎</button>
+          <button class="icon-button" id="delete-score-detail-button" type="button"
+            aria-label="删除这条成绩" title="删除成绩">删</button>
+          <button class="icon-button" id="close-score-detail-button" type="button"
+            aria-label="关闭成绩详情" title="关闭">×</button>
+        </div>
+      </header>
+      <div class="modal-body" id="score-detail-content"></div>
+    </div>
+  </dialog>
+
+  <dialog class="modal" id="chart-dialog" aria-labelledby="dialog-title">
+    <form id="chart-form" novalidate>
+      <header class="modal-header">
+        <div>
+          <span class="section-kicker" id="dialog-mode">新增谱面</span>
+          <h2 id="dialog-title">谱面信息</h2>
+        </div>
+        <button class="icon-button" id="close-dialog-button" type="button" aria-label="关闭" title="关闭">×</button>
+      </header>
+
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="field field-wide">
+            <label for="chart-title">曲名</label>
+            <input id="chart-title" name="title" type="text" maxlength="100" required autocomplete="off"
+              role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="song-search-results"
+              aria-describedby="song-search-help"
+              placeholder="输入曲名，从 2026 曲库中选择">
+            <span class="field-help" id="song-search-help">输入至少 1 个字符即可联网查询曲目；选择后会自动填写曲目 ID 与封面。</span>
+            <div class="song-search-results" id="song-search-results" role="listbox" aria-label="曲库搜索结果" hidden></div>
+          </div>
+
+          <div class="selected-song field-wide" id="selected-song" hidden>
+            <img id="selected-song-cover" alt="">
+            <div>
+              <strong id="selected-song-title"></strong>
+              <span id="selected-song-meta"></span>
+            </div>
+          </div>
+
+          <label class="field">
+            <span>曲目 ID</span>
+            <input id="chart-id" name="songId" type="text" maxlength="40" required autocomplete="off">
+          </label>
+
+          <label class="field">
+            <span>难度</span>
+            <select id="chart-difficulty" name="difficulty" required>
+              <option value="BASIC">BASIC</option>
+              <option value="ADVANCED">ADVANCED</option>
+              <option value="EXPERT">EXPERT</option>
+              <option value="MASTER" selected>MASTER</option>
+              <option value="RE:MASTER">Re:MASTER</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>谱面定数</span>
+            <input id="chart-level" name="level" type="number" min="1" max="15.9" step="0.1" value="13.0" inputmode="decimal" required>
+          </label>
+
+          <label class="field">
+            <span>达成率（%）</span>
+            <input id="chart-achievement" name="achievement" type="number" min="0" max="101" step="0.0001" value="100.0000" inputmode="decimal" required>
+          </label>
+
+          <label class="field">
+            <span>Combo 状态（可选）</span>
+            <select id="chart-combo-status" name="comboStatus">
+              <option value="" selected>未记录</option>
+              <option value="fc">FULL COMBO</option>
+              <option value="fcp">FULL COMBO +</option>
+              <option value="ap">ALL PERFECT</option>
+              <option value="app">ALL PERFECT +</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Sync 状态（可选）</span>
+            <select id="chart-sync-status" name="syncStatus">
+              <option value="" selected>未记录</option>
+              <option value="sync">SYNC</option>
+              <option value="fs">FULL SYNC</option>
+              <option value="fsp">FULL SYNC +</option>
+              <option value="fsd">FULL SYNC DX</option>
+              <option value="fsdp">FULL SYNC DX +</option>
+            </select>
+          </label>
+
+          <fieldset class="field chart-type-field">
+            <legend>谱面类型</legend>
+            <div class="radio-segments">
+              <label>
+                <input type="radio" name="chartType" value="standard">
+                <span>标准 · STD</span>
+              </label>
+              <label>
+                <input type="radio" name="chartType" value="dx" checked>
+                <span>DX</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <fieldset class="field version-field">
+            <legend>版本分类</legend>
+            <div class="radio-segments">
+              <label>
+                <input type="radio" name="version" value="legacy">
+                <span>旧曲 · B35</span>
+              </label>
+              <label>
+                <input type="radio" name="version" value="current" checked>
+                <span>新曲 · B15</span>
+              </label>
+            </div>
+          </fieldset>
+        </div>
+        <p class="form-error" id="form-error" role="alert" hidden></p>
+      </div>
+
+      <footer class="modal-footer">
+        <button class="button button-secondary" id="cancel-dialog-button" type="button">取消</button>
+        <button class="button button-primary" type="submit">保存谱面</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog class="modal auth-modal" id="auth-dialog" aria-labelledby="auth-dialog-title">
+    <form id="auth-form" novalidate>
+      <header class="modal-header">
+        <div>
+          <span class="section-kicker">云端用户空间</span>
+          <h2 id="auth-dialog-title">登录</h2>
+          <p class="auth-intro">必须登录后使用；成绩按用户保存在这台 JDK 服务器中。</p>
+        </div>
+        <button class="icon-button" id="close-auth-dialog-button" type="button" aria-label="关闭登录窗口" title="关闭" hidden>×</button>
+      </header>
+      <div class="modal-body">
+        <div class="auth-mode-switch" role="tablist" aria-label="登录或注册">
+          <button type="button" role="tab" aria-selected="true" class="is-active" data-auth-mode="login">登录</button>
+          <button type="button" role="tab" aria-selected="false" data-auth-mode="register">注册</button>
+        </div>
+        <div class="auth-fields">
+          <label class="field">
+            <span id="auth-identity-label">用户名或邮箱</span>
+            <input id="auth-username" name="username" type="text" maxlength="128"
+              autocomplete="username" autocapitalize="none" spellcheck="false" required>
+          </label>
+          <label class="field">
+            <span>密码</span>
+            <input id="auth-password" name="password" type="password" minlength="8" maxlength="128"
+              autocomplete="current-password" required>
+          </label>
+          <div class="auth-register-fields" id="auth-register-fields" hidden>
+            <label class="field">
+              <span>验证邮箱</span>
+              <input id="auth-email" name="email" type="email" maxlength="254"
+                autocomplete="email" autocapitalize="none" spellcheck="false">
+            </label>
+            <label class="field">
+              <span>邮箱验证码</span>
+              <span class="verification-input-row">
+                <input id="auth-verification-code" name="verificationCode" type="text"
+                  inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6"
+                  autocomplete="one-time-code">
+                <button class="button button-secondary" id="send-auth-code-button" type="button">发送验证码</button>
+              </span>
+            </label>
+            <p class="verification-status" id="auth-code-status" role="status" aria-live="polite">验证码为 6 位数字，10 分钟内有效。</p>
+          </div>
+        </div>
+        <p class="auth-note" id="auth-note">本站不提供游客模式。旧版浏览器本地成绩可在登录后选择迁移。</p>
+        <p class="form-error" id="auth-error" role="alert" hidden></p>
+      </div>
+      <footer class="modal-footer">
+        <button class="button button-secondary" id="cancel-auth-button" type="button" hidden>取消</button>
+        <button class="button button-primary" id="auth-submit-button" type="submit">登录</button>
+      </footer>
+    </form>
+  </dialog>
+
+
+  <dialog class="confirm-modal" id="delete-dialog" aria-labelledby="delete-title">
+    <div class="confirm-body">
+      <span class="confirm-icon" aria-hidden="true">×</span>
+      <div>
+        <h2 id="delete-title">删除谱面？</h2>
+        <p><strong id="delete-chart-name"></strong> 将从本地谱面库中移除。</p>
+      </div>
+    </div>
+    <footer class="modal-footer">
+      <button class="button button-secondary" id="cancel-delete-button" type="button">取消</button>
+      <button class="button button-danger" id="confirm-delete-button" type="button">删除</button>
+    </footer>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="judgment-details.js" defer></script>
+  <script src="user-theme.js" defer></script>
+  <script src="auth-email.js" defer></script>
+  <script src="app.js" defer></script>
+</body>
+</html>

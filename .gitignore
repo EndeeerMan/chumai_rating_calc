@@ -1,0 +1,14 @@
+user_data/
+out/
+*.class
+cache/
+wechat-helper/.venv/
+.helper-test-venv/
+wechat-helper/**/__pycache__/
+wechat-helper/**/*.pyc
+.server-test.out
+.server-test.err
+verifycaton_email.env
+web/chunithm-catalog/.catalog-sync.lock
+web/chunithm-catalog/.*.tmp
+web/chunithm-catalog/.*.bak

@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#147d70">
+  <meta name="description" content="结合落雪、水鱼公共曲库与华立官网玩家数据，同步舞萌 DX／中二节奏成绩到 B50 工作台">
+  <title>同步游戏数据 · B50 工作台</title>
+  <link rel="icon" href="/assets/maimai-mark.png" type="image/png">
+  <link rel="stylesheet" href="sync.css">
+  <link rel="stylesheet" href="theme.css">
+</head>
+<body class="sync-page auth-checking">
+  <header class="topbar">
+    <a class="brand" href="#main" aria-label="同步游戏数据">
+      <img class="brand-mark" src="/assets/maimai-mark.png" width="40" height="40"
+        alt="" aria-hidden="true">
+      <span class="brand-copy">
+        <strong>同步游戏数据</strong>
+      </span>
+    </a>
+
+    <nav class="game-switcher" aria-label="游戏切换">
+      <a href="/">舞萌 DX</a>
+      <a href="/chunithm.html">中二节奏</a>
+      <a class="is-active" href="/sync.html" aria-current="page">同步游戏数据</a>
+    </nav>
+
+    <div class="header-actions">
+      <div class="account-control">
+        <a class="button button-account" id="account-state" href="/profile.html"
+          aria-label="打开个人资料">
+          <span class="account-avatar" aria-hidden="true">游</span>
+          <span id="account-label" role="status" aria-live="polite">正在确认登录状态…</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <div class="auth-startup-mask" id="auth-startup-mask" role="status" aria-live="polite">
+    <span class="auth-startup-spinner" aria-hidden="true"></span>
+    <strong>正在确认账号</strong>
+    <p>正在安全读取登录状态，请稍候。</p>
+  </div>
+
+  <main class="page-shell" id="main">
+    <header class="page-heading">
+      <p class="eyebrow">DATA SYNC</p>
+      <h1>同步游戏数据</h1>
+      <p>网站定时或根目录脚本从落雪、水鱼 API 更新公共曲库；本页面通过一次性微信授权读取华立官网中的舞萌 DX／中二节奏玩家成绩。</p>
+    </header>
+
+    <section class="auth-banner is-checking" id="auth-banner" aria-labelledby="auth-title">
+      <span class="auth-icon" aria-hidden="true">●</span>
+      <div>
+        <strong id="auth-title">正在确认账号状态</strong>
+        <p id="auth-message">同步数据前需要登录，以便将成绩保存到正确的玩家账号。</p>
+      </div>
+      <div class="auth-actions">
+        <a class="button button-primary" id="login-link" href="/" hidden>前往登录</a>
+        <button class="button button-secondary" id="retry-auth-button" type="button" hidden>重新检查</button>
+      </div>
+    </section>
+
+    <section class="sync-workspace" aria-label="同步方式">
+      <div class="tabs" role="tablist" aria-label="同步方式">
+        <button class="tab is-active" id="proxy-tab" type="button" role="tab"
+          aria-selected="true" aria-controls="proxy-panel" tabindex="0">微信代理同步</button>
+        <button class="tab" id="upload-tab" type="button" role="tab"
+          aria-selected="false" aria-controls="upload-panel" tabindex="-1">上传 JSON</button>
+      </div>
+
+      <section class="tab-panel" id="proxy-panel" role="tabpanel" aria-labelledby="proxy-tab">
+        <div class="privacy-note" role="note">
+          <strong>公开曲库 + 官网成绩</strong>
+          <span>落雪（LXNS）与水鱼（Diving-Fish）提供可定时更新的歌曲、谱面、别名和 SongID；玩家成绩与详情只能在本次授权期间从华立官网读取，官网 Cookie 不会成为无人值守同步凭据。Helper 只处理一次 HTTP 回调，不解密 HTTPS。</span>
+        </div>
+
+        <ol class="step-list">
+          <li class="step-card" id="proxy-step">
+            <div class="step-number" aria-hidden="true">1</div>
+            <div class="step-content">
+              <div class="step-heading">
+                <div>
+                  <span>步骤 1</span>
+                  <h2>启动 Helper 并配置代理</h2>
+                </div>
+                <span class="step-state">需要手动配置</span>
+              </div>
+              <p>先在项目根目录运行 <code>.\run-wechat-helper.ps1</code> 并保持终端开启。推荐沿用原抓取方式，让微信通过标准 HTTP 代理直接连接 Helper；Clash 作为备选，两种方式只启用一种。</p>
+
+              <div class="proxy-values" aria-label="HTTP 代理地址">
+                <label>
+                  <span id="proxy-host-label">Helper 地址</span>
+                  <span class="copy-field">
+                    <input id="proxy-host" type="text" inputmode="decimal" autocomplete="off" spellcheck="false"
+                      maxlength="15" placeholder="例如 192.168.1.12"
+                      aria-describedby="proxy-host-hint">
+                    <button class="icon-button" id="copy-proxy-host-button" type="button"
+                      data-copy-target="proxy-host" aria-label="复制代理主机">复制</button>
+                  </span>
+                </label>
+                <label>
+                  <span>端口</span>
+                  <span class="copy-field">
+                    <input id="proxy-port" type="text" value="8081" readonly>
+                    <button class="icon-button" type="button" data-copy-target="proxy-port" aria-label="复制代理端口">复制</button>
+                  </span>
+                </label>
+              </div>
+              <p class="field-hint" id="proxy-host-hint">请手动填写 127.0.0.1，或运行 Helper 的电脑私网 IPv4；页面不会自动探测或回填。</p>
+              <p class="field-hint is-warning">出现 504 通常表示回调没有进入 Helper：请确认 Clash 中已激活刚导入的 Helper 配置（卡片呈选中状态），或关闭 Clash、Fiddler、Charles 后改用标准 HTTP 代理。仅“导入”配置不会自动激活。</p>
+
+              <details class="clash-config" open>
+                <summary>Clash 配置</summary>
+                <p>点击按钮只会唤起 Clash 并导入配置，Clash 不允许网页替你切换运行配置。导入后请在订阅页点选新出现的 Helper 配置，确认卡片处于选中状态；若手动合并 YAML，规则必须放在现有 <code>MATCH</code> 等终止规则之前。同步期间不要同时运行 Fiddler、Charles 或另一套系统代理。</p>
+                <div class="proxy-config-actions">
+                  <a class="button button-primary" id="open-clash-button" href="#"
+                    aria-disabled="true" tabindex="-1">导入 Clash 配置</a>
+                </div>
+                <pre id="clash-yaml" tabindex="0" aria-label="Clash YAML 配置"><code id="clash-yaml-code"></code></pre>
+                <button class="button button-secondary" id="copy-clash-button" type="button">复制 YAML</button>
+              </details>
+
+              <details class="http-proxy-config" open>
+                <summary>标准 HTTP 代理（推荐，与原抓取方式一致）</summary>
+                <p>先关闭 Clash、Fiddler、Charles 及其他系统代理，再在 Wi-Fi 或移动网络的代理设置中选择“手动”或“HTTP 代理”，服务器填写上方 Helper 地址，端口填写 <code>8081</code>。抓取结束后请关闭该代理。</p>
+                <div class="proxy-config-actions">
+                  <button class="button button-secondary" id="copy-http-proxy-host-button" type="button"
+                    data-copy-target="proxy-host">复制服务器</button>
+                  <button class="button button-secondary" id="copy-http-proxy-port-button" type="button"
+                    data-copy-target="proxy-port">复制端口 8081</button>
+                </div>
+              </details>
+            </div>
+          </li>
+
+          <li class="step-card" id="game-step">
+            <div class="step-number" aria-hidden="true">2</div>
+            <div class="step-content">
+              <div class="step-heading">
+                <div>
+                  <span>步骤 2</span>
+                  <h2>选择需要同步的游戏</h2>
+                </div>
+              </div>
+              <fieldset class="game-options">
+                <legend class="sr-only">代理同步游戏</legend>
+                <label class="game-option is-selected">
+                  <input type="radio" name="proxy-game" value="maimai" checked>
+                  <img class="game-option-mark" src="/assets/maimai-mark.png" width="34" height="34"
+                    alt="" aria-hidden="true">
+                  <span>
+                    <strong>舞萌 DX</strong>
+                    <small>从舞萌华立官网同步最佳成绩与最近游玩</small>
+                  </span>
+                  <span class="support-badge is-supported">可用</span>
+                </label>
+                <label class="game-option">
+                  <input type="radio" name="proxy-game" value="chunithm">
+                  <img class="game-option-mark" src="/assets/chunithm-mark.png" width="34" height="34"
+                    alt="" aria-hidden="true">
+                  <span>
+                    <strong>中二节奏</strong>
+                    <small>从中二华立官网同步最佳成绩与最近游玩</small>
+                  </span>
+                  <span class="support-badge is-supported">可用</span>
+                </label>
+              </fieldset>
+            </div>
+          </li>
+
+          <li class="step-card" id="session-step">
+            <div class="step-number" aria-hidden="true">3</div>
+            <div class="step-content">
+              <div class="step-heading">
+                <div>
+                  <span>步骤 3</span>
+                  <h2>创建 15 分钟短时会话</h2>
+                </div>
+                <span class="step-state" id="session-step-state">尚未创建</span>
+              </div>
+              <p>点击创建时会先验证手动填写的 IP 是否确实运行本项目 Helper，通过后才签发本次授权会话。随后请在所选设备的微信中打开链接；Helper 会读取华立官网数据，并使用已经同步的落雪／水鱼曲库交叉校验 SongID。</p>
+              <button class="button button-primary" id="create-session-button" type="button" disabled>创建同步会话</button>
+
+              <section class="session-box" id="session-box" aria-labelledby="session-box-title" hidden>
+                <div class="session-box-heading">
+                  <strong id="session-box-title">会话已创建</strong>
+                  <span id="session-countdown">剩余时间计算中…</span>
+                </div>
+                <label>
+                  <span>辅助程序令牌</span>
+                  <span class="copy-field">
+                    <input id="helper-token" type="text" readonly autocomplete="off">
+                    <button class="icon-button" type="button" data-copy-target="helper-token" aria-label="复制辅助程序令牌">复制</button>
+                  </span>
+                </label>
+                <label>
+                  <span>微信 OAuth 启动链接</span>
+                  <span class="copy-field">
+                    <input id="oauth-url" type="text" readonly autocomplete="off">
+                    <button class="icon-button" type="button" data-copy-target="oauth-url" aria-label="复制微信 OAuth 链接">复制</button>
+                  </span>
+                </label>
+                <div class="session-actions">
+                  <a class="button button-secondary" id="open-oauth-link" href="#" target="_blank" rel="noopener noreferrer">打开 OAuth 链接</a>
+                  <button class="button button-quiet" id="replace-session-button" type="button">重新创建</button>
+                </div>
+                <p class="safety-hint">请只把 OAuth 链接发送到自己的安全聊天；不要公开辅助令牌或授权链接。</p>
+              </section>
+            </div>
+          </li>
+
+          <li class="step-card" id="status-step">
+            <div class="step-number" aria-hidden="true">4</div>
+            <div class="step-content">
+              <div class="step-heading">
+                <div>
+                  <span>步骤 4</span>
+                  <h2>等待数据同步完成</h2>
+                </div>
+                <span class="status-pill is-idle" id="session-status-pill">等待开始</span>
+              </div>
+              <div
+                class="sync-progress"
+                id="sync-progress"
+                role="progressbar"
+                aria-label="游戏数据同步进度"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow="0"
+                aria-valuetext="等待创建同步会话"
+              ><span id="sync-progress-bar"></span></div>
+              <div class="sync-progress-details" id="sync-progress-details" aria-hidden="true" hidden>
+                <span class="sync-progress-game" id="sync-progress-game">舞萌 DX</span>
+                <span id="sync-progress-count">已处理 0 / 0 · 详情成功 0 · 跳过 0</span>
+                <strong id="sync-progress-percent">0%</strong>
+                <span class="sync-progress-reasons" id="sync-progress-reasons" hidden></span>
+              </div>
+              <div class="status-copy" id="session-status" role="status" aria-live="polite">
+                <strong>等待创建同步会话</strong>
+                <p>完成前三步后，这里会自动轮询同步状态。</p>
+              </div>
+              <div class="result-summary" id="proxy-result" hidden>
+                <span>已保存游玩历史</span>
+                <strong id="proxy-history-count">—</strong>
+                <a id="proxy-result-link" href="/">查看 B50 分数构成</a>
+              </div>
+            </div>
+          </li>
+        </ol>
+      </section>
+
+      <section class="tab-panel" id="upload-panel" role="tabpanel" aria-labelledby="upload-tab" hidden>
+        <header class="panel-heading">
+          <div>
+            <h2>上传 JSON 数据</h2>
+            <p>支持选择、拖放或粘贴 JSON；一次最多添加 5 份数据。</p>
+          </div>
+          <span class="format-badge">仅 JSON</span>
+        </header>
+
+        <div class="format-note" role="note">
+          <strong>支持的数据结构</strong>
+          <p>每份内容可为 <code>{ "records": [...], "charts": [...] }</code>，也可直接使用成绩记录数组。这里不会解析公众号 HTML。</p>
+        </div>
+
+        <fieldset class="upload-game-picker">
+          <legend>数据所属游戏</legend>
+          <label><input type="radio" name="upload-game" value="maimai" checked> 舞萌 DX</label>
+          <label><input type="radio" name="upload-game" value="chunithm"> 中二节奏</label>
+        </fieldset>
+
+        <div class="drop-zone" id="json-drop-zone" role="group"
+          aria-label="选择或拖放 JSON 文件" aria-describedby="drop-zone-help">
+          <span class="drop-icon" aria-hidden="true">⇧</span>
+          <strong>将 JSON 文件拖到这里</strong>
+          <span>或点击选择文件</span>
+          <button class="button button-secondary" id="choose-json-button" type="button">选择 JSON 文件</button>
+          <input id="json-file-input" type="file" accept=".json,application/json" multiple hidden>
+          <small id="drop-zone-help">最多 5 个文件，单个文件不超过 5 MB。</small>
+        </div>
+
+        <div class="paste-box">
+          <label for="json-paste-input">粘贴 JSON 文本</label>
+          <textarea id="json-paste-input" rows="6" spellcheck="false"
+            placeholder='例如：{ "records": [...], "charts": [...] }'></textarea>
+          <button class="button button-secondary" id="add-pasted-json-button" type="button">添加粘贴内容</button>
+        </div>
+
+        <section class="upload-queue" aria-labelledby="upload-queue-title">
+          <div class="queue-heading">
+            <div>
+              <h3 id="upload-queue-title">待上传数据</h3>
+              <p id="upload-queue-summary">尚未添加 JSON</p>
+            </div>
+            <button class="button button-quiet" id="clear-upload-button" type="button" disabled>清空</button>
+          </div>
+          <ul id="upload-queue-list" aria-live="polite"></ul>
+          <p class="empty-queue" id="empty-upload-queue">选择文件、拖放文件，或在上方粘贴 JSON 内容。</p>
+        </section>
+
+        <div class="upload-actions">
+          <button class="button button-primary" id="start-upload-button" type="button" disabled>开始导入</button>
+          <span id="upload-status" role="status" aria-live="polite">等待添加 JSON 数据</span>
+        </div>
+
+        <div class="result-summary upload-result" id="upload-result" hidden>
+          <span>导入完成 · 当前游玩历史</span>
+          <strong id="upload-history-count">—</strong>
+          <a id="upload-result-link" href="/">查看 B50 分数构成</a>
+        </div>
+      </section>
+    </section>
+
+    <p class="global-message" id="global-message" role="alert" aria-live="assertive" hidden></p>
+  </main>
+
+  <footer>
+    <p>授权参数与 Cookie 不应写入日志或长期保存。短时会话到期后，请关闭本地辅助代理。</p>
+  </footer>
+
+  <dialog class="auth-modal" id="auth-dialog" aria-labelledby="auth-dialog-title">
+    <form id="auth-form" novalidate>
+      <header class="auth-modal-header">
+        <div>
+          <span class="auth-kicker">云端用户空间</span>
+          <h2 id="auth-dialog-title">登录</h2>
+          <p>必须登录后使用；同步结果只会写入当前玩家的独立数据空间。</p>
+        </div>
+      </header>
+      <div class="auth-modal-body">
+        <div class="auth-mode-switch" role="tablist" aria-label="登录或注册">
+          <button type="button" role="tab" aria-selected="true" class="is-active" data-auth-mode="login">登录</button>
+          <button type="button" role="tab" aria-selected="false" data-auth-mode="register">注册</button>
+        </div>
+        <div class="auth-fields">
+          <label>
+            <span id="auth-identity-label">用户名或邮箱</span>
+            <input id="auth-username" name="username" type="text" maxlength="128"
+              autocomplete="username" required autofocus>
+          </label>
+          <label>
+            <span>密码</span>
+            <input id="auth-password" name="password" type="password" minlength="8" maxlength="128"
+              autocomplete="current-password" required>
+          </label>
+          <div class="auth-register-fields" id="auth-register-fields" hidden>
+            <label>
+              <span>验证邮箱</span>
+              <input id="auth-email" name="email" type="email" maxlength="254"
+                autocomplete="email" autocapitalize="none" spellcheck="false">
+            </label>
+            <label>
+              <span>邮箱验证码</span>
+              <span class="verification-input-row">
+                <input id="auth-verification-code" name="verificationCode" type="text"
+                  inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6"
+                  autocomplete="one-time-code">
+                <button class="button button-secondary" id="send-auth-code-button" type="button">发送验证码</button>
+              </span>
+            </label>
+            <p class="verification-status" id="auth-code-status" role="status" aria-live="polite">验证码为 6 位数字，10 分钟内有效。</p>
+          </div>
+        </div>
+        <p class="auth-note" id="auth-note">本站不提供游客模式。登录后才能同步或导入成绩。</p>
+        <p class="auth-error" id="auth-error" role="alert" hidden></p>
+      </div>
+      <footer class="auth-modal-footer">
+        <button class="button button-primary" id="auth-submit-button" type="submit">登录</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <noscript><p class="noscript-warning">此页面需要 JavaScript 才能创建同步会话和导入 JSON。</p></noscript>
+  <script src="user-theme.js" defer></script>
+  <script src="auth-email.js" defer></script>
+  <script src="sync.js" defer></script>
+</body>
+</html>

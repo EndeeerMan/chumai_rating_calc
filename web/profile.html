@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#117c6f">
+  <meta name="description" content="管理 B50 工作台的邮箱、昵称、头像、双游戏背景与账户安全">
+  <title>个人资料 · B50 工作台</title>
+  <link rel="icon" href="/assets/maimai-mark.png" type="image/png">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="profile.css">
+  <link rel="stylesheet" href="theme.css">
+</head>
+<body class="profile-page">
+  <header class="topbar">
+    <a class="brand" href="#profile-main" aria-label="个人资料">
+      <img class="brand-mark" src="/assets/maimai-mark.png" width="40" height="40"
+        alt="" aria-hidden="true">
+      <span class="brand-copy"><strong>个人资料</strong></span>
+    </a>
+
+    <nav class="game-switcher" aria-label="游戏切换">
+      <a href="/">舞萌 DX</a>
+      <a href="/chunithm.html">中二节奏</a>
+      <a href="/sync.html">同步游戏数据</a>
+    </nav>
+
+    <div class="header-actions">
+      <div class="account-control">
+        <a class="button button-account account-link is-current" href="/profile.html"
+          aria-current="page" aria-label="当前位于个人资料">
+          <span class="account-avatar" aria-hidden="true">用</span>
+          <span id="account-label">正在读取资料…</span>
+        </a>
+      </div>
+    </div>
+  </header>
+
+  <main class="profile-shell" id="profile-main">
+    <section class="profile-loading profile-card" id="profile-loading" role="status" aria-live="polite">
+      <span class="profile-loading-dot" aria-hidden="true"></span>
+      <div>
+        <strong>正在读取个人资料</strong>
+        <p>确认登录状态并载入玩家外观设置。</p>
+      </div>
+    </section>
+
+    <div id="profile-content" hidden>
+      <section class="profile-hero" aria-labelledby="profile-title">
+        <div class="profile-avatar profile-avatar-large" id="hero-avatar" aria-hidden="true">用</div>
+        <div class="profile-identity">
+          <span class="profile-kicker">PLAYER PROFILE</span>
+          <h1 id="profile-title">玩家资料</h1>
+          <strong id="profile-display-name">—</strong>
+          <span id="profile-username">@—</span>
+        </div>
+        <a class="button button-secondary" href="/">返回成绩构成</a>
+      </section>
+
+      <div class="profile-grid">
+        <section class="profile-card profile-card-wide email-card" id="email-card" aria-labelledby="email-title">
+          <header class="profile-card-heading">
+            <div>
+              <span>邮箱验证</span>
+              <h2 id="email-title">绑定邮箱</h2>
+            </div>
+            <strong class="verified-email" id="current-email">正在确认…</strong>
+          </header>
+          <p class="email-required-notice" id="email-required-notice" role="alert" hidden>
+            此账号尚未绑定邮箱。完成验证前，其他个人资料功能暂不可用。
+          </p>
+          <form id="email-form" class="profile-form email-form" novalidate>
+            <label for="email-address">新邮箱</label>
+            <input id="email-address" name="email" type="email" maxlength="254"
+              autocomplete="email" autocapitalize="none" spellcheck="false" required>
+            <label for="email-verification-code">邮箱验证码</label>
+            <div class="email-code-row">
+              <input id="email-verification-code" name="verificationCode" type="text"
+                inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6"
+                autocomplete="one-time-code" required>
+              <button class="button button-secondary" id="send-email-code-button" type="button">发送验证码</button>
+            </div>
+            <label for="email-current-password">当前密码</label>
+            <input id="email-current-password" name="currentPassword" type="password"
+              minlength="8" maxlength="128" autocomplete="current-password" required>
+            <p id="email-code-status" role="status" aria-live="polite">验证码为 6 位数字，10 分钟内有效；重新发送需等待 2 分钟。</p>
+            <button class="button button-primary" id="save-email-button" type="submit">验证并绑定</button>
+          </form>
+        </section>
+
+        <section class="profile-card" data-email-protected aria-labelledby="nickname-title">
+          <header class="profile-card-heading">
+            <div>
+              <span>基本信息</span>
+              <h2 id="nickname-title">昵称</h2>
+            </div>
+          </header>
+          <form id="nickname-form" class="profile-form" novalidate>
+            <label for="display-name">显示昵称</label>
+            <input id="display-name" name="displayName" type="text" minlength="1" maxlength="32"
+              autocomplete="nickname" required>
+            <p>1–32 个字符，仅作为站内显示名；登录用户名不会改变。</p>
+            <button class="button button-primary" id="save-nickname-button" type="submit">保存昵称</button>
+          </form>
+        </section>
+
+        <section class="profile-card" data-email-protected aria-labelledby="avatar-title">
+          <header class="profile-card-heading">
+            <div>
+              <span>玩家形象</span>
+              <h2 id="avatar-title">头像</h2>
+            </div>
+          </header>
+          <div class="asset-editor asset-editor-avatar">
+            <div class="profile-avatar profile-avatar-preview" id="avatar-preview" aria-hidden="true">用</div>
+            <div class="asset-editor-copy">
+              <p>支持 PNG 或 JPEG，最大 5 MB。图片会由服务器安全处理为方形头像。</p>
+              <div class="asset-actions">
+                <label class="button button-primary" for="avatar-input">选择头像</label>
+                <input id="avatar-input" type="file" accept="image/png,image/jpeg" hidden>
+                <button class="button button-secondary" id="remove-avatar-button" type="button">恢复文字头像</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="profile-card profile-card-wide" data-email-protected aria-labelledby="background-title">
+          <header class="profile-card-heading">
+            <div>
+              <span>页面外观</span>
+              <h2 id="background-title">分游戏自定义背景图</h2>
+            </div>
+          </header>
+          <p class="background-help">舞萌 DX 与中二节奏分别保存，切换游戏时会自动使用对应背景。支持 PNG 或 JPEG，单张最大 12 MB。</p>
+          <div class="background-editors-grid">
+            <article class="background-editor" aria-labelledby="maimai-background-title">
+              <h3 id="maimai-background-title">舞萌 DX</h3>
+              <div class="background-preview" id="maimai-background-preview" aria-label="舞萌 DX 背景图预览">
+                <picture>
+                  <source media="(max-width: 760px)" srcset="/assets/backgrounds/maimai-mobile.jpg">
+                  <img id="maimai-background-preview-image" src="/assets/backgrounds/maimai-desktop.png"
+                    alt="舞萌 DX 当前背景图预览">
+                </picture>
+                <span id="maimai-background-preview-label">正在确认背景…</span>
+              </div>
+              <div class="asset-actions">
+                <label class="button button-primary" for="maimai-background-input">选择舞萌背景</label>
+                <input id="maimai-background-input" type="file" accept="image/png,image/jpeg" hidden>
+                <button class="button button-secondary" id="remove-maimai-background-button" type="button">恢复舞萌默认背景</button>
+              </div>
+            </article>
+
+            <article class="background-editor" aria-labelledby="chunithm-background-title">
+              <h3 id="chunithm-background-title">中二节奏</h3>
+              <div class="background-preview" id="chunithm-background-preview" aria-label="中二节奏背景图预览">
+                <picture>
+                  <source media="(max-width: 760px)" srcset="/assets/backgrounds/chunithm-mobile.jpg">
+                  <img id="chunithm-background-preview-image" src="/assets/backgrounds/chunithm-desktop.png"
+                    alt="中二节奏当前背景图预览">
+                </picture>
+                <span id="chunithm-background-preview-label">正在确认背景…</span>
+              </div>
+              <div class="asset-actions">
+                <label class="button button-primary" for="chunithm-background-input">选择中二背景</label>
+                <input id="chunithm-background-input" type="file" accept="image/png,image/jpeg" hidden>
+                <button class="button button-secondary" id="remove-chunithm-background-button" type="button">恢复中二默认背景</button>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="profile-card profile-card-wide" data-email-protected aria-labelledby="password-title">
+          <header class="profile-card-heading">
+            <div>
+              <span>账户安全</span>
+              <h2 id="password-title">修改密码</h2>
+            </div>
+          </header>
+          <form id="password-form" class="profile-form password-form" novalidate>
+            <label for="current-password">当前密码</label>
+            <input id="current-password" name="currentPassword" type="password"
+              minlength="8" maxlength="128" autocomplete="current-password" required>
+            <label for="new-password">新密码</label>
+            <input id="new-password" name="newPassword" type="password"
+              minlength="8" maxlength="128" autocomplete="new-password" required>
+            <label for="confirm-password">确认新密码</label>
+            <input id="confirm-password" name="confirmPassword" type="password"
+              minlength="8" maxlength="128" autocomplete="new-password" required>
+            <p>修改成功后会让其他设备上的旧会话失效，当前页面会自动换用新会话。</p>
+            <button class="button button-primary" id="change-password-button" type="submit">修改密码</button>
+          </form>
+        </section>
+
+        <section class="profile-card profile-card-wide danger-zone" aria-labelledby="session-title">
+          <header class="profile-card-heading">
+            <div>
+              <span>当前会话</span>
+              <h2 id="session-title">退出登录</h2>
+            </div>
+          </header>
+          <p>退出后将返回登录界面，本机尚未提交的表单内容不会保留。</p>
+          <button class="button button-danger" id="profile-logout-button" type="button">退出当前账号</button>
+        </section>
+
+        <section class="profile-card profile-card-wide danger-zone" aria-labelledby="delete-account-title">
+          <header class="profile-card-heading">
+            <div>
+              <span>危险操作</span>
+              <h2 id="delete-account-title">注销账号</h2>
+            </div>
+          </header>
+          <p>注销后会永久删除此账号及其舞萌、中二成绩和个人图片，无法恢复。</p>
+          <form id="delete-account-form" class="profile-form delete-account-form" novalidate>
+            <label for="delete-current-password">当前密码</label>
+            <input id="delete-current-password" name="currentPassword" type="password"
+              minlength="8" maxlength="128" autocomplete="current-password" required>
+            <label for="delete-username-confirmation">输入用户名 <strong id="delete-username-hint">—</strong> 确认</label>
+            <input id="delete-username-confirmation" name="usernameConfirmation" type="text"
+              maxlength="32" autocomplete="off" autocapitalize="none" spellcheck="false" required>
+            <button class="button button-danger" id="delete-account-button" type="submit">永久注销账号</button>
+          </form>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <div class="profile-message" id="profile-message" role="status" aria-live="polite" hidden></div>
+  <noscript><p class="profile-noscript">个人资料页面需要启用 JavaScript。</p></noscript>
+  <script src="user-theme.js" defer></script>
+  <script src="profile.js" defer></script>
+</body>
+</html>

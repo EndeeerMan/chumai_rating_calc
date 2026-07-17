@@ -1,0 +1,389 @@
+maimai DX B50 工作台 - 项目说明
+
+一、运行环境
+
+- JDK 26
+- Windows PowerShell
+- 仅使用 JDK 标准库，不依赖 Maven、Gradle 或第三方 Web 框架
+
+二、启动网页
+
+在项目根目录执行：
+
+    .\run-web.ps1
+
+指定端口：
+
+    .\run-web.ps1 -Port 8090
+
+编译完成后打开控制台显示的地址。默认地址为：
+
+    http://localhost:8080
+
+8081 固定保留给可选的舞萌 DX／中二节奏微信同步 Helper，run-web.ps1 会拒绝让网站占用该端口。
+
+也可以手动编译并运行 WebServer.java。WebServer 必须从项目根目录启动，
+因为静态资源位于 web 目录。
+
+首次开放注册前，需要在项目根目录填写邮件验证配置：
+
+    verifycaton_email.env
+
+这个精确文件名已经写入 .gitignore，不会随 Git 提交；仓库中的
+verifycaton_email.env.example 只包含无密钥示例。推荐为第三方邮箱单独创建“应用专用密码”，
+不要填写邮箱网页登录密码。常用配置如下，修改后需重启 Java 网站：
+
+    SMTP_HOST=smtp.example.com
+    SMTP_PORT=587
+    SMTP_USERNAME=your-account@example.com
+    SMTP_PASSWORD=replace-with-an-app-password
+    SMTP_FROM=your-account@example.com
+    SMTP_FROM_NAME=B50 工作台
+    SMTP_SECURITY=STARTTLS
+
+第三方 SMTP 必须使用 STARTTLS 或 SSL；PLAIN 只允许本机回环测试服务器。配置缺失或仍为空
+模板时，网站仍可启动，但发码接口会明确返回“尚未配置”，新用户无法注册，未绑定邮箱的
+旧用户只能进入绑定页、退出或注销账号。验证码固定为 6 位数字，10 分钟内有效；同一邮箱
+重新发送必须等待 2 分钟，并另有错误次数、单邮箱与全局发信限额。
+
+服务监听所有本机 IPv4 网络接口。若要让同一局域网内的手机访问，请先确认 Windows 当前
+网络类型为“专用网络”，然后在项目根目录执行以下脚本；脚本会请求 UAC 管理员权限：
+
+    .\setup-lan-access.ps1
+
+脚本只允许“专用网络”配置文件中的本地子网设备通过 TCP 8080 入站，不会向“公用网络”或
+任意远程地址开放。然后查询电脑的私网 IPv4（例如 192.168.1.12），手机访问：
+
+    http://192.168.1.12:8080
+
+网站改用其他端口时，防火墙与网站必须使用同一端口；重复运行会更新同一条规则，不会遗留
+旧端口。例如：
+
+    .\setup-lan-access.ps1 -Port 8090
+    .\run-web.ps1 -Port 8090
+
+暂时关闭或彻底删除这条局域网规则：
+
+    .\setup-lan-access.ps1 -Disable
+    .\setup-lan-access.ps1 -Remove
+
+若电脑当前连接被 Windows 标记为“公用网络”，脚本会有意保持无法访问；请先在 Windows
+网络设置中将可信的家庭局域网改为“专用网络”。不要为解决连接问题手工开放 Public、Any
+或公网远程地址。如需通过互联网访问，应另外配置 HTTPS 反向代理、Secure Cookie、访问
+控制和登录限流，而不是扩大这条防火墙规则。
+
+可选的双游戏微信同步 Helper 使用独立的 Python 3.12 虚拟环境。在项目根目录执行：
+
+    .\setup-wechat-helper.ps1
+    .\run-wechat-helper.ps1
+
+setup 脚本只查找已安装的 Python 3.12，不会静默安装系统软件；它会创建
+wechat-helper/.venv、安装 requirements.txt 并执行离线 dry-run。run 脚本在启动前会检查：
+
+    http://127.0.0.1:8080/api/health
+
+Helper 端口固定为 8081，会话 TTL 固定为 900 秒（15 分钟）。同步页统一使用一个 Helper
+地址：同机连接可填 127.0.0.1，跨设备连接填写运行 Helper 的电脑私网 IPv4（10.x、
+172.16–31.x 或 192.168.x）。手机同步前，先核对同步页显示的是电脑当前私网 IPv4，且手机
+代理或 Clash 配置也使用该地址和 8081；直接访问 Helper 根路径返回 403 是正常的安全拒绝，
+不代表 8081 未监听。
+
+为了给跨设备同步建立固定的最小权限 Windows 防火墙规则，在项目根目录执行：
+
+    .\setup-lan-access.ps1 -Helper
+
+`-Helper` 模式只管理名为 MaimaiRatingCalc-WeChatHelper-PrivateLAN 的独立规则：仅允许
+Private 配置文件、LocalSubnet 来源、Inbound Allow TCP 8081，并阻止 Edge Traversal。
+它不会修改网站的 MaimaiRatingCalc-Web-PrivateLAN（默认 TCP 8080）规则；重复运行只会
+规范化同一条 Helper 规则。不要将 `-Helper` 与 `-Port` 组合使用。
+
+暂时关闭或彻底删除 Helper 规则：
+
+    .\setup-lan-access.ps1 -Helper -Disable
+    .\setup-lan-access.ps1 -Helper -Remove
+
+该专用规则用于新机器或 Python 路径变化后的稳定部署。排查现有同步失败时，应先检查同步页
+显示的 Helper 地址、手机代理／Clash 规则及 Helper 控制台状态，不能仅凭 403 判断防火墙故障。
+
+同步页的 Helper 地址暂由玩家手动填写，页面不会自动探测或回填；同机使用
+127.0.0.1，跨设备则填写运行 Helper 的电脑私网 IPv4。页面可以直接唤起当前设备的
+Clash 安装临时配置，也保留 YAML 手动合并方式。Clash 只把
+tgk-wcaime.wahlap.com 的 80 端口 OAuth 回调转给 8081，其余流量保持 DIRECT。合并片段时，
+应把 AND 规则插在原配置的 MATCH 等终止规则之前；已有终止规则时不要重复复制片段末尾的
+MATCH,DIRECT。Clash 配置必须保持 type: http 和 port: 8081，不需要 SOCKS5 8082 或第二条
+防火墙规则。Clash 会为规则命中的 Wahlap :80 建立 CONNECT，Helper 将隧道内的明文回调
+交给受审计 addon。DST-PORT,80 不能删除：HTTPS 443 与其他非 80 普通流量不由这条 Clash
+规则接管，也不送入 Helper，避免 Helper 的上游回连再次命中代理而形成自代理循环。直接使用
+标准 HTTP 代理时，Helper 收到的所有目标端口不是 80 的 CONNECT（尤其 HTTPS 443）都作为
+不透明隧道原样透传，不解密、不记录。
+
+不用 Clash 时，可在 Wi-Fi 或移动网络中填写标准 HTTP 代理：服务器为同一个 Helper 地址，
+端口为 8081。Helper 将 HTTPS 作为 CONNECT 隧道原样直通，不解密、不记录，因此不需要访问
+mitm.it 或安装 mitmproxy CA；仅处理经过审计的 Wahlap 明文回调，其他明文 HTTP 请求返回
+403。Clash 和手动 HTTP 代理必须二选一，不能再叠加 Fiddler、Charles 或其他代理；同步结束
+后关闭所选代理。
+
+标准 HTTP 代理为推荐方式，与原抓取方法一致。run-wechat-helper.ps1 正式启动前会检测当前
+用户会话中的 Fiddler、Fiddler Everywhere 与 Charles；检测到会直接中止并说明这些程序会
+抢走 OAuth 回调造成 504。网页创建会话前会先请求手填地址的 /health，确认 8081 确实是本
+项目 Helper 后才签发授权会话；Helper 终端还会记录不含参数和令牌的安全路由命中日志。
+
+使用流程：
+
+1. 启动 Java 网站与 Helper，在 Clash 规则和标准 HTTP 代理中只选择一种并启用。
+2. 登录网站，打开“同步游戏数据”，选择舞萌 DX 或中二节奏并创建 15 分钟会话。
+3. 在微信内置浏览器打开页面生成的 /start 链接并完成授权。
+4. 回调页先显示“抓取中”状态；进入限速详情抓取后，微信回调页与电脑同步页都会显示
+   当前游戏、已处理数量、总数、成功抓取数和百分比。Helper 自动读取官方最佳成绩与
+   最近游玩、用本地曲库校验 SongID，并导入当前登录用户。
+5. 后端确认导入后，回调页自动切换为“上传完成”，可点击按钮关闭；失败时会显示脱敏
+   错误。整个过程不需要手动浏览或逐页打开官方成绩页面。
+
+Helper 还会自动打开最近游玩的官方详情页。舞萌保存 TAP/HOLD/SLIDE/TOUCH/BREAK
+各自的 CRITICAL PERFECT、PERFECT、GREAT、GOOD、MISS；中二保存官网实际提供的
+全局 JUSTICE CRITICAL/JUSTICE/ATTACK/MISS、TAP/HOLD/SLIDE/AIR/FLICK 达成率和
+MAX COMBO。中二官网没有提供“音符类型 × 判定”矩阵，程序不会猜测或伪造。网页的
+“游玩详情”只显示这些玩家本局数据，不再混入曲库中的原谱面物量或谱师。成绩详情里的
+曲库资料仍与玩家本局判定严格分区。单条详情抓取失败不会丢掉基础历史；以后同步成功时
+会原位补全，响应中的 recordsEnriched 表示补全条数。
+
+舞萌官网详情中能可靠识别时，还会保存 FAST、LATE、MAX COMBO、MAX SYNC、DX SCORE、
+本局后 DX Rating、Rating 变化、同步时玩家总 Rating，以及最多五名旅行伙伴的星数、等级
+和官方静态头像。
+进度页使用随机短期内存标识，进度事件只含游戏、阶段与计数，不包含详情 idx、网站 token、
+OAuth 参数、Cookie 或 HTML；成功或失败都会保留最后计数供玩家确认，终态五分钟后清除。
+
+Helper 的上游客户端不读取 Windows 系统代理，运行 Helper 的电脑必须能直连 Wahlap 与微信
+OAuth。匹配不到曲库 SongID、标题或难度时会明确失败，不会猜测错误歌曲或静默漏掉记录。
+
+曲库同步与玩家同步是两条严格分开的数据通道：网站在 Asia/Taipei 每天 00:00、12:00，
+或由根目录手动脚本，只从 Diving-Fish（水鱼）与 LXNS（落雪）的免登录公开 API 刷新
+双游戏曲库，并从公开资源服务补齐封面；这条通道绝不访问华立官网、玩家成绩、
+OAuth 或 Cookie。玩家成绩、最近游玩和逐局详情只在玩家主动创建的 15 分钟 Helper OAuth
+会话中从舞萌／中二华立官网读取，并用已验证曲库交叉核对；授权 Cookie 不会写入曲库、
+文件或日志。
+
+若网站按上例改到 8090，Helper 也要对应启动：
+
+    .\run-wechat-helper.ps1 -BackendUrl http://127.0.0.1:8090
+
+三、B50 规则
+
+1. 每张谱面的单曲 Rating：
+
+   floor(谱面定数 × min(达成率, 100.5000) / 100 × 达成率系数)
+
+2. 达成率系数沿用 RatingCalc.java 中的分段表。
+3. 旧曲池按单曲 Rating 排序并取最高 35 张，组成 B35。
+4. 当前版本曲池按单曲 Rating 排序并取最高 15 张，组成 B15。
+5. B50 总 Rating = B35 小计 + B15 小计。
+6. Rating 相同时依次比较达成率、谱面定数、曲目 ID、谱面类型、难度和曲名，保证排序稳定。
+7. 新曲/旧曲分类以当前游戏版本为基准，由录入或导入数据明确指定。
+8. 同一首歌的 STANDARD 与 DX 谱面分别参与排名；唯一键为曲目 ID、谱面类型和难度。
+9. 新曲/旧曲分类属于具体谱面键（曲目 ID、谱面类型、难度）；同一歌曲后来追加的
+   Re:MASTER 等谱面可进入新曲池，而较早谱面仍留在旧曲池。
+
+四、中二节奏 B30 + N20
+
+舞萌页面右上方可切换到中二节奏页面，也可直接打开：
+
+    http://localhost:8080/chunithm.html
+
+中二节奏单曲 Rating 使用官方分段线性插值，并在每张谱面处向下截取到两位小数。
+旧版本谱面取最高 30 张组成 B30，当前版本谱面取最高 20 张组成 N20：
+
+    总 Rating = (B30 单曲 Rating 和 + N20 单曲 Rating 和) / 50
+
+即使成绩不足 50 张，除数也固定为 50。BASIC、ADVANCED、EXPERT、MASTER、
+ULTIMA 和 WORLD'S END 分别显示独立难度配色。WORLD'S END 可保存和查看，
+但不参与 Rating；LXNS 标记 disabled=true 的歌曲同样不进入 B30/N20。
+
+中二曲库以随程序附带或最近一次验证成功的 Diving-Fish 全量快照为离线主数据。
+交互搜索的联网结果最多每 30 分钟刷新一次；后台还会在 Asia/Taipei 每天 00:00、
+12:00 严格下载并校验以下四份公开资源，再原子发布到 web/chunithm-catalog。
+LXNS 用于补充别名、禁用状态、逐谱面版本和 WORLD'S END 封面 origin_id：
+
+    https://www.diving-fish.com/api/chunithmprober/music_data
+    https://www.diving-fish.com/api/chunithmprober/latest_version
+    https://maimai.lxns.net/api/v0/chunithm/song/list
+    https://maimai.lxns.net/api/v0/chunithm/alias/list
+
+LXNS 官方曲绘地址为：
+
+    https://assets2.lxns.net/chunithm/jacket/{song_id}.png
+
+网页通过本机后端代理该地址，并把校验通过的 PNG 缓存在：
+
+    cache/chunithm-covers/
+
+根目录统一脚本会扫描当前曲库所需的全部封面 ID，保留已有有效缓存并下载缺失项；网站后端
+仍会在单张缓存缺失时按需补抓，作为运行期间的修复通道。中二封面默认来自 LXNS；历史删除曲
+《脳裏上のクラッカー》的 LXNS 资源缺失时，只允许回退到代码中固定且经过审计的 RemyWiki
+原图 URI，不会根据曲库内容拼接任意第三方地址。
+
+WORLD'S END 的成绩 Song ID 与封面 ID 不同，程序优先按 LXNS 文档使用
+SongDifficulty.origin_id。旧式离线数据缺少 origin_id 时，只允许把去除开头标记后的标题
+按 NFKC 精确且唯一地映射到普通谱 Song ID；歧义或无匹配时仍显示本地占位图，不做模糊猜测。
+
+中二与舞萌共用登录账号，但成绩文件分开保存：
+
+    user_data/chunithm_charts/<用户 UUID>.json
+
+每个用户的数据独立，并使用 revision 防止旧标签页覆盖新数据。本站不提供游客模式；
+旧版本曾保存在 localStorage 的中二成绩只会在登录空账号后询问是否迁移。
+
+五、网页功能
+
+- 新增、编辑和删除谱面成绩
+- 查看 B35、B15、总 Rating 及未入选成绩
+- 按曲名或曲目 ID 搜索，并按 Rating、达成率、定数或曲名排序
+- 使用舞萌 DX 2026 国服曲库搜索歌曲，选择后自动填写 Song ID、STD/DX、版本分类与封面
+- 搜索时可联网刷新公开 Song ID 数据；联网失败会自动使用随程序附带的本地快照
+- 成绩卡、游玩记录和谱面详情显示歌曲封面，图片缺失或损坏时显示本地占位图
+- BASIC、ADVANCED、EXPERT、MASTER、Re:MASTER 分别使用绿、黄、红、紫、白紫配色
+- 用户注册、登录与退出；注册必须验证邮箱，登录可填写用户名或邮箱；每个用户拥有独立的服务器成绩库
+- 邮箱不可解绑为空，可在个人资料中用当前密码和新邮箱验证码换绑；检测到旧账号没有邮箱时
+  会强制进入绑定流程
+- 个人资料可分别上传舞萌 DX 与中二节奏背景、设置头像和昵称、修改密码，并可在密码与
+  完整用户名双重确认后永久注销账号
+- 从舞萌、中二或同步页任一入口首次进入，都会直接显示不可跳过的登录/注册窗口；
+  未登录时不能查看、录入、同步、导入或导出
+- 旧版本地成绩仅可在首次登录空账户时选择迁移，不会作为游客数据继续使用
+- 导入和导出 CSV
+- 独立游玩记录列表；点击某一局可查看官网抓到的玩家判定和本局统计
+- 歌曲详情按难度列出定数、TOTAL/TAP/HOLD/SLIDE/TOUCH/BREAK 与谱师；
+  曲库缺失的字段显示“—”，不会把谱面物量冒充玩家判定
+- 浏览器本地自动保存
+- 调用 JDK 后端计算；后端暂时不可用时使用同规则的浏览器计算作为降级
+
+网页 CSV 一行代表一张谱面，必需表头如下：
+
+    songId,title,chartType,difficulty,level,achievement,version
+
+chartType 使用 standard 或 dx；version 使用 legacy（旧曲）或 current（当前版本新曲）。
+coverUrl 是可选封面地址，旧 CSV 不含此列也可继续导入。导出文件还会包含 rating、selected
+和 format 三列。format 用于无歧义还原表格公式防护；重新导入时会忽略 rating 和 selected
+两个派生字段并重新计算。
+
+六、曲库、Song ID 与用户数据
+
+曲库文件位于 web/song-catalog：
+
+    maidata.json
+    cover/
+    diving-fish-music-data.json
+
+maidata.json 与 cover/ 来自用户提供的“舞萌DX2026歌曲数据库”，数据说明显示其抓取自
+国服舞萌 DX 微信公众号 maimaiNET，版本为 CN1.55，最后更新于 2026-06-16。
+随附文件用于离线启动；联网曲库会按“基础 SongID”合并同一歌曲的 STANDARD 与 DX 谱面。
+Diving-Fish 的普通 DX ID 带 10000 偏移（例如 11849），程序会统一规范为公众号和 LXNS
+使用的基础 SongID（1849）。谱面的唯一键是 SongID + STD/DX + 难度，不再用标题或
+10000 偏移 ID 作为另一首歌曲，因此手动添加和公众号导入不会因 ID 制式不同而重复。
+
+后端启动后会按 Asia/Taipei 时区每天 00:00、12:00 自动刷新舞萌与中二两套曲库。
+舞萌严格组合以下固定 HTTPS 公共源：
+
+    https://www.diving-fish.com/api/maimaidxprober/music_data
+    https://maimai.lxns.net/api/v0/maimai/song/list
+    https://maimai.lxns.net/api/v0/maimai/alias/list
+
+Diving-Fish 提供谱面音符数，LXNS 提供基础 SongID、当前曲名、别名、谱面版本和封面资源。
+宴会场使用另一套高位 ID，刷新时会在 SongID 规范化之前排除，避免错误覆盖普通歌曲。
+刷新结果必须三路全部下载并通过 UTF-8、大小、字段、重复 ID 和谱面校验，随后才会在同目录
+原子替换 cache/maimai-catalog.json；任何下载、校验或落盘失败都会保留上一份可用缓存，
+也不会阻塞网站启动。
+
+中二同一次定时任务严格组合前文列出的两份 Diving-Fish 与两份 LXNS API。四份响应必须
+一起通过 UTF-8、大小、字段、ID、谱面、版本与别名校验，才会逐文件原子替换：
+
+    web/chunithm-catalog/diving-fish-music-data.json
+    web/chunithm-catalog/diving-fish-latest-version.json
+    web/chunithm-catalog/lxns-song-list.json
+    web/chunithm-catalog/lxns-alias-list.json
+
+任一下载、校验或原子落盘失败时，中二会保留上一份完整可用的内存与磁盘快照；启动时
+若持久化 LXNS 文件缺失或损坏，仍可只用 Diving-Fish 快照离线运行。曲库发布成功后，
+根目录手动脚本还会优先通过固定的 LXNS CDN 补齐舞萌与中二的缺失封面，并校验 PNG 后原子写入
+各自缓存；有效旧封面不会重复下载，仍有缺失时脚本会明确失败而不会假报“全部完成”。
+
+可在项目根目录用统一入口同时手动同步两套曲库：
+
+    .\sync-song-catalogs.ps1
+
+需要显式经过 Clash HTTP 代理时可使用：
+
+    .\sync-song-catalogs.ps1 -ProxyHost 127.0.0.1 -ProxyPort 7890
+
+脚本使用独立临时编译目录，不会清空正在运行网站使用的 out/。默认输出分区、带颜色的中文
+报告，分别列出舞萌、中二的歌曲数量、时间、每一个 Diving-Fish/LXNS API 的验证与发布
+状态，以及封面总数、已有数、本次下载数和剩余缺失数。它不读取或显示华立官网玩家数据；
+任一曲库或可解析封面仍未补全即返回非 0，并显示失败原因。
+需要让其他程序读取原始结果时可运行：
+
+    .\sync-song-catalogs.ps1 -Json
+
+旧的舞萌单游戏脚本已删除，避免名称与实际“双游戏同步”行为产生歧义。
+识别结果先按已知 SongID 解析；没有已知 ID 时才按曲名/别名安全
+匹配，仍未命中就必须由玩家搜索选择。local-* 等非数字伪 ID 会被拒绝。
+
+注册用户的数据保存在项目根目录的 user_data/ 中：
+
+    user_data/users.json
+    user_data/user_emails.json
+    user_data/charts/<用户 UUID>.json
+    user_data/profiles/<用户 UUID>/
+    user_data/chunithm_charts/<用户 UUID>.json
+    user_data/play_history/<用户 UUID>.json
+    user_data/chunithm_play_history/<用户 UUID>.json
+
+密码不会明文保存，而是使用带随机盐的 PBKDF2-HMAC-SHA256 哈希。各用户成绩以 UUID
+文件名隔离，并通过 revision 防止多个标签页静默覆盖较新的数据。登录会话只保存在后端
+内存中，服务器重启后需要重新登录，但账号和成绩仍会保留。请备份整个 user_data 目录；
+不要手工编辑其中的 JSON，也不要同时启动两个实例写同一目录。
+用户邮箱单独保存在 user_emails.json，不改变旧 users.json 的 v1 六字段结构。注销账号会
+撤销该用户全部登录／同步会话，并清理两款游戏成绩、游玩历史、邮箱映射、头像和双背景；
+其他用户数据不会被触碰。
+
+七、主要文件
+
+- WebServer.java：HTTP 服务、静态资源服务及 B50 API
+- B50Calculator.java：B35 + B15 选择与排序
+- ChartInput.java / B50Item.java / B50Result.java / Version.java：B50 数据模型
+- RatingCalc.java：单曲 Rating 分段公式
+- B50CalculatorTest.java：不依赖第三方库的领域测试
+- JudgmentDetails.java / PlayDetails.java：官方逐局玩家判定与游玩统计的严格数据模型
+- SongCatalog.java：基础 SongID 唯一的多源曲库、原子缓存、别名与谱面详情
+- MaimaiScoreCanonicalizer.java / MaimaiChartMerger.java：所有导入入口的基础 SongID 规范化、重复谱面取最高与徽章合并
+- MaimaiCatalogScheduler.java：Asia/Taipei 每日 00:00/12:00 非阻塞刷新调度
+- ChunithmCatalogScheduler.java：中二四源快照每日 00:00/12:00 严格刷新调度
+- SongCatalogSync.java / sync-song-catalogs.ps1：根目录双游戏统一手动同步
+- SongCatalogTest.java / ChunithmCatalogTest.java / MaimaiCatalogSchedulerTest.java /
+  ChunithmCatalogSchedulerTest.java / SongCatalogSyncTest.java / WebServerSongCatalogTest.java：
+  曲库合并、失败回退、原子写、时钟边界与 HTTP 契约测试
+- AuthService.java / UserStore.java：注册、登录、会话及分用户成绩持久化
+- UserEmailStore.java / EmailVerificationService.java / SmtpEmailSender.java：唯一邮箱映射、
+  验证码生命周期与 JDK 标准库 SMTP 投递
+- UserProfileStore.java / web/profile.html / web/profile.js：昵称、头像、舞萌／中二独立背景、
+  换绑邮箱、修改密码与注销账号
+- UserAuthTest.java / WebServerAuthTest.java：用户存储与认证 HTTP 契约测试
+- web/index.html：网页结构
+- web/styles.css：响应式样式
+- web/app.js：交互、强制登录门、CSV 与后端同步
+- ChunithmCatalog.java / ChunithmCoverService.java：中二曲库、LXNS 增强与封面缓存
+- ChunithmCalculator.java / ChunithmScoreStore.java：中二 B30+N20 与分用户数据
+- web/chunithm.html / web/chunithm.css / web/chunithm.js：中二网页
+- run-web.ps1：JDK 26 编译与启动脚本
+- setup-lan-access.ps1：以独立固定规则仅向专用网络本地子网开放网站端口或 Helper TCP 8081
+- web/sync.html / web/sync.css / web/sync.js：微信代理与 JSON 同步页面
+- setup-wechat-helper.ps1 / run-wechat-helper.ps1：Python 3.12 Helper 安装、检查与正式双游戏同步启动脚本
+- wechat-helper/：固定监听 8081 的可选微信同步组件；支持舞萌 DX 与中二节奏正式同步
+
+八、数据与生成目录
+
+原来的学生/科目控制台源码已经移除。database_store/database.csv 和 password 仅作为历史数据
+保留，网页 B50 工作台不会读取或修改它们；确认不再需要旧数据后可自行备份并删除。
+
+out/ 是 JDK 编译产物，run-web.ps1 每次启动前都会清空并重新生成，避免旧类残留。
+cache/ 保存可重新下载的曲库与舞萌／中二封面缓存；user_data/ 保存当前注册账号及成绩，必须备份并保留。
+本站不提供游客谱面库。登录用户谱面库保存在 user_data/ 中；浏览器 localStorage 中的旧版
+成绩仅作为一次性迁移来源读取，未登录时不会展示或修改。

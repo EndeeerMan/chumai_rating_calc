@@ -1,0 +1,427 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#6657b8">
+  <title>CHUNITHM B30 + N20 工作台</title>
+  <link rel="icon" href="/assets/chunithm-mark.png" type="image/png">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="chunithm.css">
+  <link rel="stylesheet" href="lxns-score.css">
+  <link rel="stylesheet" href="theme.css">
+</head>
+<body class="chunithm-page auth-checking">
+  <header class="topbar">
+    <a class="brand" href="#main" aria-label="CHUNITHM B30 加 N20 工作台">
+      <img class="brand-mark" src="/assets/chunithm-mark.png" width="40" height="40"
+        alt="" aria-hidden="true">
+      <span class="brand-copy">
+        <strong>中二节奏</strong>
+      </span>
+    </a>
+
+    <nav class="game-switcher" aria-label="游戏切换">
+      <a href="/">舞萌 DX</a>
+      <a class="is-active" href="/chunithm.html" aria-current="page">中二节奏</a>
+      <a href="/sync.html">同步游戏数据</a>
+    </nav>
+
+    <div class="header-actions">
+      <span class="sync-status" id="sync-status" role="status" aria-live="polite">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="sync-status-text">本地计算</span>
+      </span>
+      <div class="account-control">
+        <button class="button button-account" id="account-button" type="button" aria-haspopup="dialog">
+          <span class="account-avatar" aria-hidden="true">游</span>
+          <span id="account-label">登录 / 注册</span>
+        </button>
+      </div>
+      <details class="header-tools-menu">
+        <summary class="button button-secondary" aria-label="打开数据工具">工具</summary>
+        <div class="header-tools-popover">
+          <button class="button button-secondary" id="logout-button" type="button" hidden>退出</button>
+          <button class="button button-secondary" id="import-button" type="button">导入 CSV</button>
+          <button class="button button-secondary" id="export-button" type="button">导出 CSV</button>
+        </div>
+      </details>
+      <input id="csv-input" type="file" accept=".csv,text/csv" hidden>
+    </div>
+  </header>
+
+  <div class="auth-startup-mask" id="auth-startup-mask" role="status" aria-live="polite">
+    <span class="auth-startup-spinner" aria-hidden="true"></span>
+    <strong>正在确认账号</strong>
+    <p>正在安全读取登录状态，请稍候。</p>
+  </div>
+
+  <main id="main" class="app-shell">
+    <section class="summary-band chuni-summary" aria-label="B30 加 N20 汇总">
+      <div class="summary-primary">
+        <span class="summary-label">总 Rating</span>
+        <strong id="total-rating">0.0000</strong>
+        <span class="summary-meta" id="selected-count">已入选 0 / 50</span>
+      </div>
+      <div class="summary-item summary-old">
+        <span class="summary-label">旧曲 B30</span>
+        <strong id="b30-rating">0.0000</strong>
+        <span class="summary-meta" id="b30-count">0 / 30 · 贡献 0.00</span>
+      </div>
+      <div class="summary-item summary-new">
+        <span class="summary-label">新曲 N20</span>
+        <strong id="n20-rating">0.0000</strong>
+        <span class="summary-meta" id="n20-count">0 / 20 · 贡献 0.00</span>
+      </div>
+      <div class="summary-item summary-library">
+        <span class="summary-label">谱面库</span>
+        <strong id="library-count">0</strong>
+        <span class="summary-meta" id="worlds-end-count">WORLD'S END 0 条</span>
+      </div>
+    </section>
+
+    <aside class="chuni-note" aria-label="计算规则">
+      <strong>计分规则</strong>
+      <span>旧版本取 Rating 最高 30 张、当前版本取最高 20 张，总 Rating 为两池贡献和 ÷ 50。WORLD'S END 可保存和导出，但不进入分数构成。</span>
+    </aside>
+
+    <section class="library-section" aria-labelledby="library-heading">
+      <div class="section-heading">
+        <div>
+          <span class="section-kicker">成绩管理</span>
+          <h1 id="library-heading">中二节奏分数构成</h1>
+        </div>
+        <div class="score-view-actions">
+          <div class="segmented-control score-view-control" role="tablist" aria-label="成绩视图">
+            <button id="composition-view-tab" type="button" role="tab" aria-selected="true"
+              aria-controls="score-composition-panel" class="is-active" data-score-view="composition">
+              分数构成
+            </button>
+            <button id="play-history-view-tab" type="button" role="tab" aria-selected="false"
+              aria-controls="play-history-view-panel" data-score-view="history">
+              游玩记录
+            </button>
+          </div>
+          <button class="button button-primary" id="add-chart-button" type="button">
+            <span aria-hidden="true">＋</span> 添加成绩
+          </button>
+        </div>
+      </div>
+
+      <div class="lxns-score-composition" id="score-composition-panel" role="tabpanel"
+        aria-labelledby="composition-view-tab">
+        <section class="summary-band chuni-summary" aria-label="中二节奏分数构成平均值">
+          <div class="summary-primary">
+            <span class="summary-label">Rating 均值</span>
+            <strong id="composition-rating-average">0.0000</strong>
+            <span class="summary-meta" id="composition-rating-meta">B30 + N20 · 0 / 50</span>
+          </div>
+          <div class="summary-item summary-old">
+            <span class="summary-label">Best 30 平均</span>
+            <strong id="composition-b30-average">0.00</strong>
+            <span class="summary-meta" id="composition-b30-meta">0 / 30</span>
+          </div>
+          <div class="summary-item summary-library">
+            <span class="summary-label">Selection 10 平均</span>
+            <strong id="composition-s10-average">0.00</strong>
+            <span class="summary-meta" id="composition-s10-meta">0 / 10 · 不计总 Rating</span>
+          </div>
+          <div class="summary-item summary-new">
+            <span class="summary-label">New 20 平均</span>
+            <strong id="composition-n20-average">0.00</strong>
+            <span class="summary-meta" id="composition-n20-meta">0 / 20</span>
+          </div>
+        </section>
+
+        <aside class="chuni-note" aria-label="分数构成说明">
+          <strong>构成规则</strong>
+          <span>Best 30 为旧曲前 30 名；Selection 10 为旧曲第 31–40 名，仅供选曲参考且不计入总 Rating；New 20 为当前版本前 20 名。已禁用谱面与 WORLD'S END 不进入构成。</span>
+        </aside>
+
+        <section class="score-pool-section score-composition-section lxns-score-pool"
+          aria-labelledby="composition-b30-heading">
+          <div class="section-block-heading">
+            <div>
+              <span class="section-step">旧曲主池</span>
+              <h3 id="composition-b30-heading">Best 30</h3>
+            </div>
+            <span class="section-count" id="composition-b30-count">0 / 30</span>
+          </div>
+          <div class="score-review-list score-card-list lxns-score-grid" id="composition-b30-list"
+            role="list" aria-label="Best 30 成绩卡"></div>
+          <div class="empty-state" id="composition-b30-empty">
+            <strong>暂无 Best 30 成绩</strong>
+            <span>添加符合条件的旧曲成绩后会显示在这里。</span>
+          </div>
+        </section>
+
+        <section class="score-pool-section score-composition-section lxns-score-pool"
+          aria-labelledby="composition-s10-heading">
+          <div class="section-block-heading">
+            <div>
+              <span class="section-step">旧曲候选池 · 不计总 Rating</span>
+              <h3 id="composition-s10-heading">Selection 10</h3>
+            </div>
+            <span class="section-count" id="composition-s10-count">0 / 10</span>
+          </div>
+          <div class="score-review-list score-card-list lxns-score-grid" id="composition-s10-list"
+            role="list" aria-label="Selection 10 成绩卡"></div>
+          <div class="empty-state" id="composition-s10-empty">
+            <strong>暂无 Selection 10 成绩</strong>
+            <span>旧曲成绩超过 30 条后，第 31–40 名会显示在这里。</span>
+          </div>
+        </section>
+
+        <section class="score-pool-section score-composition-section lxns-score-pool"
+          aria-labelledby="composition-n20-heading">
+          <div class="section-block-heading">
+            <div>
+              <span class="section-step">当前版本池</span>
+              <h3 id="composition-n20-heading">New 20</h3>
+            </div>
+            <span class="section-count" id="composition-n20-count">0 / 20</span>
+          </div>
+          <div class="score-review-list score-card-list lxns-score-grid" id="composition-n20-list"
+            role="list" aria-label="New 20 成绩卡"></div>
+          <div class="empty-state" id="composition-n20-empty">
+            <strong>暂无 New 20 成绩</strong>
+            <span>添加当前版本的成绩后会显示在这里。</span>
+          </div>
+        </section>
+      </div>
+
+      <div class="play-history-view" id="play-history-view-panel" role="tabpanel"
+        aria-labelledby="play-history-view-tab" hidden>
+        <div class="play-history-view-heading">
+          <div>
+            <span class="section-kicker">中二 NET</span>
+            <h2>游玩记录</h2>
+            <p>按时间显示同步到当前账号的最近游玩；点击一局查看完整结果。</p>
+          </div>
+          <button class="button button-secondary" id="refresh-play-history-button" type="button">刷新记录</button>
+        </div>
+        <p class="play-history-view-status" id="play-history-view-status" role="status" aria-live="polite">
+          切换到此页后读取游玩记录。
+        </p>
+        <ol class="play-history-overview-list" id="play-history-overview-list"></ol>
+        <div class="empty-state play-history-overview-empty" id="play-history-overview-empty" hidden>
+          <strong>暂无游玩记录</strong>
+          <span>完成一次微信公众号同步后，记录会显示在这里。</span>
+          <a class="button button-secondary" href="/sync.html?game=chunithm">前往同步数据</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog class="modal" id="chart-dialog" aria-labelledby="dialog-title">
+    <form id="chart-form" novalidate>
+      <header class="modal-header">
+        <div>
+          <span class="section-kicker" id="dialog-mode">新增成绩</span>
+          <h2 id="dialog-title">谱面信息</h2>
+        </div>
+        <button class="icon-button" id="close-dialog-button" type="button" aria-label="关闭" title="关闭">×</button>
+      </header>
+
+      <div class="modal-body">
+        <div class="form-grid">
+          <div class="field field-wide">
+            <label for="chart-title">曲名</label>
+            <input id="chart-title" name="title" type="text" maxlength="160" required autocomplete="off"
+              role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="song-search-results"
+              aria-describedby="song-search-help" placeholder="输入曲名，从中二节奏曲库中选择">
+            <span class="field-help" id="song-search-help">输入曲名、Song ID 或艺术家；选择后会自动填写 CID、定数、版本与封面。</span>
+            <div class="song-search-results" id="song-search-results" role="listbox" aria-label="曲库搜索结果" hidden></div>
+          </div>
+
+          <div class="selected-song field-wide" id="selected-song" hidden>
+            <img id="selected-song-cover" alt="">
+            <div>
+              <strong id="selected-song-title"></strong>
+              <span id="selected-song-meta"></span>
+              <span id="selected-chart-meta"></span>
+            </div>
+          </div>
+
+          <label class="field">
+            <span>Song ID</span>
+            <input id="chart-song-id" name="songId" type="text" maxlength="40" required autocomplete="off">
+          </label>
+
+          <label class="field">
+            <span>难度</span>
+            <select id="chart-difficulty" name="difficulty" required>
+              <option value="BASIC">BASIC</option>
+              <option value="ADVANCED">ADVANCED</option>
+              <option value="EXPERT">EXPERT</option>
+              <option value="MASTER" selected>MASTER</option>
+              <option value="ULTIMA">ULTIMA</option>
+              <option value="WORLD'S END">WORLD'S END</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>谱面 CID</span>
+            <input id="chart-cid" name="cid" type="text" maxlength="40" autocomplete="off">
+            <span class="field-help">从曲库选谱时自动填写；CID 仅作参考，不影响成绩保存与 Rating。</span>
+          </label>
+
+          <label class="field">
+            <span>谱面定数</span>
+            <input id="chart-constant" name="constant" type="number" min="0" max="20" step="0.1" value="13.0" inputmode="decimal" required>
+          </label>
+
+          <label class="field">
+            <span>分数</span>
+            <input id="chart-score" name="score" type="number" min="0" max="1010000" step="1" value="1000000" inputmode="numeric" required>
+            <span class="field-help">请输入 0–1,010,000 的整数。</span>
+          </label>
+
+          <label class="field">
+            <span>稼动版本</span>
+            <input id="chart-version" name="version" type="text" maxlength="100" required
+              placeholder="选曲后自动填写，例如 CHUNITHM VERSE" autocomplete="off">
+            <span class="field-help">是否属于 N20 由 Diving-Fish 返回的当前版本列表自动判定。</span>
+          </label>
+        </div>
+        <p class="form-error" id="form-error" role="alert" hidden></p>
+      </div>
+
+      <footer class="modal-footer">
+        <button class="button button-secondary" id="cancel-dialog-button" type="button">取消</button>
+        <button class="button button-primary" type="submit">保存成绩</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <dialog class="modal auth-modal" id="auth-dialog" aria-labelledby="auth-dialog-title">
+    <form id="auth-form" novalidate>
+      <header class="modal-header">
+        <div>
+          <span class="section-kicker">云端用户空间</span>
+          <h2 id="auth-dialog-title">登录</h2>
+          <p class="auth-intro">必须登录后使用；账号与舞萌共用，中二成绩使用独立数据空间。</p>
+        </div>
+        <button class="icon-button" id="close-auth-dialog-button" type="button" aria-label="关闭登录窗口" title="关闭" hidden>×</button>
+      </header>
+      <div class="modal-body">
+        <div class="auth-mode-switch" role="tablist" aria-label="登录或注册">
+          <button type="button" role="tab" aria-selected="true" class="is-active" data-auth-mode="login">登录</button>
+          <button type="button" role="tab" aria-selected="false" data-auth-mode="register">注册</button>
+        </div>
+        <div class="auth-fields">
+          <label class="field">
+            <span id="auth-identity-label">用户名或邮箱</span>
+            <input id="auth-username" name="username" type="text" maxlength="128"
+              autocomplete="username" autocapitalize="none" spellcheck="false" required>
+          </label>
+          <label class="field">
+            <span>密码</span>
+            <input id="auth-password" name="password" type="password" minlength="8" maxlength="128"
+              autocomplete="current-password" required>
+          </label>
+          <div class="auth-register-fields" id="auth-register-fields" hidden>
+            <label class="field">
+              <span>验证邮箱</span>
+              <input id="auth-email" name="email" type="email" maxlength="254"
+                autocomplete="email" autocapitalize="none" spellcheck="false">
+            </label>
+            <label class="field">
+              <span>邮箱验证码</span>
+              <span class="verification-input-row">
+                <input id="auth-verification-code" name="verificationCode" type="text"
+                  inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6"
+                  autocomplete="one-time-code">
+                <button class="button button-secondary" id="send-auth-code-button" type="button">发送验证码</button>
+              </span>
+            </label>
+            <p class="verification-status" id="auth-code-status" role="status" aria-live="polite">验证码为 6 位数字，10 分钟内有效。</p>
+          </div>
+        </div>
+        <p class="auth-note" id="auth-note">本站不提供游客模式。旧版浏览器本地成绩可在登录后选择迁移。</p>
+        <p class="form-error" id="auth-error" role="alert" hidden></p>
+      </div>
+      <footer class="modal-footer">
+        <button class="button button-secondary" id="cancel-auth-button" type="button" hidden>取消</button>
+        <button class="button button-primary" id="auth-submit-button" type="submit">登录</button>
+      </footer>
+    </form>
+  </dialog>
+
+
+  <dialog class="modal score-detail-modal lxns-detail-modal" id="score-detail-dialog"
+    aria-labelledby="score-detail-title"
+    aria-describedby="score-detail-description">
+    <div class="score-detail-shell lxns-detail-shell">
+      <header class="modal-header lxns-detail-header">
+        <div>
+          <span class="section-kicker" id="score-detail-pool">分数构成</span>
+          <h2 id="score-detail-title">成绩详情</h2>
+        </div>
+        <div class="row-actions">
+          <button class="icon-button" id="edit-score-detail-button" type="button" data-action="edit"
+            aria-label="编辑这条成绩" title="编辑成绩">✎</button>
+          <button class="icon-button" id="delete-score-detail-button" type="button" data-action="delete"
+            aria-label="删除这条成绩" title="删除成绩">×</button>
+          <button class="icon-button" id="close-score-detail-button" type="button"
+            aria-label="关闭成绩详情" title="关闭">×</button>
+        </div>
+      </header>
+      <div class="modal-body lxns-detail-body">
+        <section class="lxns-detail-song" aria-label="歌曲信息">
+          <img class="lxns-detail-cover" id="score-detail-cover" width="94" height="94" alt="">
+          <div class="lxns-detail-song-copy">
+            <span class="lxns-detail-song-id" id="score-detail-song-id"></span>
+            <strong class="lxns-detail-song-title" id="score-detail-song-title"></strong>
+            <span class="lxns-detail-song-meta" id="score-detail-song-meta"></span>
+          </div>
+          <div class="lxns-detail-constant" aria-label="谱面定数">
+            <span>定数</span>
+            <strong id="score-detail-constant">—</strong>
+          </div>
+        </section>
+
+        <section class="lxns-detail-result" aria-label="成绩">
+          <img class="lxns-rank-image lxns-rank-image--detail" id="score-detail-rank-image"
+            width="64" height="30" alt="" hidden>
+          <div class="lxns-detail-score">
+            <span>成绩</span>
+            <strong id="score-detail-score">0</strong>
+          </div>
+          <div class="lxns-detail-rating">
+            <span>Rating</span>
+            <strong id="score-detail-rating">0.00</strong>
+          </div>
+        </section>
+
+        <dl class="lxns-detail-metrics" id="score-detail-metrics"></dl>
+        <div id="score-detail-history"></div>
+        <p class="visually-hidden" id="score-detail-description">
+          展示已保存成绩、当前曲库资料与已抓取的玩家逐局判定。
+        </p>
+      </div>
+    </div>
+  </dialog>
+
+  <dialog class="confirm-modal" id="delete-dialog" aria-labelledby="delete-title">
+    <div class="confirm-body">
+      <span class="confirm-icon" aria-hidden="true">×</span>
+      <div>
+        <h2 id="delete-title">删除成绩？</h2>
+        <p><strong id="delete-chart-name"></strong> 将从中二节奏谱面库中移除。</p>
+      </div>
+    </div>
+    <footer class="modal-footer">
+      <button class="button button-secondary" id="cancel-delete-button" type="button">取消</button>
+      <button class="button button-danger" id="confirm-delete-button" type="button">删除</button>
+    </footer>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+  <script src="judgment-details.js" defer></script>
+  <script src="user-theme.js" defer></script>
+  <script src="auth-email.js" defer></script>
+  <script src="chunithm.js" defer></script>
+</body>
+</html>

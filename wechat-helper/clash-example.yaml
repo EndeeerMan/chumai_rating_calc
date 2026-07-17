@@ -1,0 +1,14 @@
+# 将 192.168.1.23 替换为运行辅助程序的电脑局域网 IPv4。
+# 只代理舞萌 DX / 中二节奏 OAuth 的 HTTP 回调；其余流量保持直连。
+# HTTPS 443 与其他非 80 流量不得送入 Helper，避免 Helper 上游回连形成自代理循环。
+# 合并到现有配置时，将 AND 规则放到已有 MATCH 等终止规则之前；
+# 如果原配置已有终止规则，不要重复复制下面的 MATCH,DIRECT。
+proxies:
+  - name: rhythm-wechat-local
+    type: http
+    server: 192.168.1.23
+    port: 8081
+
+rules:
+  - AND,((DOMAIN,tgk-wcaime.wahlap.com),(DST-PORT,80)),rhythm-wechat-local
+  - MATCH,DIRECT
