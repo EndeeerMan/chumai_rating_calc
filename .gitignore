@@ -1,6 +1,4 @@
 user_data/
-out/
-*.class
 cache/
 wechat-helper/.venv/
 .helper-test-venv/
