@@ -1,5 +1,7 @@
 user_data/
 cache/
+out/
+*.class
 wechat-helper/.venv/
 .helper-test-venv/
 wechat-helper/**/__pycache__/
