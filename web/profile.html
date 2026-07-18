@@ -82,7 +82,7 @@
             </div>
             <label for="email-current-password">当前密码</label>
             <input id="email-current-password" name="currentPassword" type="password"
-              minlength="8" maxlength="128" autocomplete="current-password" required>
+              minlength="6" maxlength="128" autocomplete="current-password" required>
             <p id="email-code-status" role="status" aria-live="polite">验证码为 6 位数字，10 分钟内有效；重新发送需等待 2 分钟。</p>
             <button class="button button-primary" id="save-email-button" type="submit">验证并绑定</button>
           </form>
@@ -179,14 +179,16 @@
           <form id="password-form" class="profile-form password-form" novalidate>
             <label for="current-password">当前密码</label>
             <input id="current-password" name="currentPassword" type="password"
-              minlength="8" maxlength="128" autocomplete="current-password" required>
+              minlength="6" maxlength="128" autocomplete="current-password" required>
             <label for="new-password">新密码</label>
             <input id="new-password" name="newPassword" type="password"
-              minlength="8" maxlength="128" autocomplete="new-password" required>
+              minlength="6" maxlength="32" pattern="[!-~]{6,32}"
+              autocomplete="new-password" required>
             <label for="confirm-password">确认新密码</label>
             <input id="confirm-password" name="confirmPassword" type="password"
-              minlength="8" maxlength="128" autocomplete="new-password" required>
-            <p>修改成功后会让其他设备上的旧会话失效，当前页面会自动换用新会话。</p>
+              minlength="6" maxlength="32" pattern="[!-~]{6,32}"
+              autocomplete="new-password" required>
+            <p>新密码须为 6–32 位，只能使用 ASCII 十进制 33–126（! 到 ~）；修改成功后其他设备的旧会话会失效。</p>
             <button class="button button-primary" id="change-password-button" type="submit">修改密码</button>
           </form>
         </section>
@@ -213,7 +215,7 @@
           <form id="delete-account-form" class="profile-form delete-account-form" novalidate>
             <label for="delete-current-password">当前密码</label>
             <input id="delete-current-password" name="currentPassword" type="password"
-              minlength="8" maxlength="128" autocomplete="current-password" required>
+              minlength="6" maxlength="128" autocomplete="current-password" required>
             <label for="delete-username-confirmation">输入用户名 <strong id="delete-username-hint">—</strong> 确认</label>
             <input id="delete-username-confirmation" name="usernameConfirmation" type="text"
               maxlength="32" autocomplete="off" autocapitalize="none" spellcheck="false" required>

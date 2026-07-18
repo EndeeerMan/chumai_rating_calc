@@ -20,9 +20,12 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.security.MessageDigest;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -61,6 +64,7 @@ public final class WebServer {
     private static final String AUTH_LOGIN_PATH = "/api/auth/login";
     private static final String AUTH_LOGOUT_PATH = "/api/auth/logout";
     private static final String AUTH_EMAIL_CODE_PATH = "/api/auth/email/code";
+    private static final String AUTH_PASSWORD_RESET_PATH = "/api/auth/password/reset";
     private static final String USER_PROFILE_PATH = "/api/user/profile";
     private static final String USER_AVATAR_PATH = "/api/user/profile/avatar";
     private static final String USER_BACKGROUND_PATH = "/api/user/profile/background";
@@ -100,6 +104,8 @@ public final class WebServer {
             "username", "password", "email", "verificationCode",
             "verificationFlowId");
     private static final Set<String> EMAIL_CODE_KEYS = Set.of("email", "purpose");
+    private static final Set<String> PASSWORD_RESET_KEYS = Set.of(
+            "email", "verificationCode", "verificationFlowId", "newPassword");
     private static final Set<String> EMAIL_UPDATE_KEYS = Set.of(
             "email", "verificationCode", "currentPassword");
     private static final Set<String> ACCOUNT_DELETE_KEYS = Set.of("currentPassword");
@@ -166,6 +172,10 @@ public final class WebServer {
         server.createContext(
                 AUTH_EMAIL_CODE_PATH,
                 new EmailCodeHandler(
+                        authService, emailStore, emailVerificationService));
+        server.createContext(
+                AUTH_PASSWORD_RESET_PATH,
+                new PasswordResetHandler(
                         authService, emailStore, emailVerificationService));
         server.createContext(
                 USER_PROFILE_PATH,
@@ -606,25 +616,30 @@ public final class WebServer {
                     if (emailStore.findUserId(email).isPresent()) {
                         throw new ClientError(409, "Email is already bound");
                     }
-                    requireVerifiedEmailCode(
-                            verificationService.verifyAndConsume(
+                    AuthService.validateNewCredentials(
+                            document.get("username"), document.get("password"));
+                    try (EmailVerificationService.VerificationReservation reservation =
+                            requireVerifiedEmailReservation(
+                                    verificationService,
                                     EmailVerificationService.Purpose.REGISTER,
                                     requireVerificationFlowId(
                                             document.get("verificationFlowId")),
                                     email,
-                                    document.get("verificationCode")));
-                    session = authService.register(
-                            document.get("username"), document.get("password"));
-                    try {
-                        emailStore.bind(session.user().id(), email);
-                    } catch (IOException | RuntimeException error) {
+                                    document.get("verificationCode"))) {
+                        session = authService.register(
+                                document.get("username"), document.get("password"));
                         try {
-                            authService.deleteAccount(
-                                    session.token(), document.get("password"));
-                        } catch (IOException | RuntimeException rollbackError) {
-                            error.addSuppressed(rollbackError);
+                            emailStore.bind(session.user().id(), email);
+                        } catch (IOException | RuntimeException error) {
+                            try {
+                                authService.deleteAccount(
+                                        session.token(), document.get("password"));
+                            } catch (IOException | RuntimeException rollbackError) {
+                                error.addSuppressed(rollbackError);
+                            }
+                            throw error;
                         }
-                        throw error;
+                        reservation.consume();
                     }
                 }
                 setSessionCookie(exchange, session.token());
@@ -723,6 +738,8 @@ public final class WebServer {
         private final AuthService authService;
         private final UserEmailStore emailStore;
         private final EmailVerificationService verificationService;
+        private final PasswordResetRequestGate passwordResetGate =
+                new PasswordResetRequestGate();
 
         private EmailCodeHandler(
                 AuthService authService,
@@ -760,6 +777,7 @@ public final class WebServer {
                 EmailVerificationService.Purpose purpose;
                 String context;
                 String verificationFlowId = null;
+                PasswordResetRequestGate.Acceptance resetAcceptance = null;
                 if ("register".equals(requestedPurpose)) {
                     if (emailStore.findUserId(email).isPresent()) {
                         throw new ClientError(409, "Email is already bound");
@@ -782,15 +800,33 @@ public final class WebServer {
                             ? EmailVerificationService.Purpose.REBIND
                             : EmailVerificationService.Purpose.BIND;
                     context = user.id();
+                } else if ("reset-password".equals(requestedPurpose)) {
+                    purpose = EmailVerificationService.Purpose.RESET_PASSWORD;
+                    verificationFlowId = UUID.randomUUID().toString();
+                    context = verificationFlowId;
+                    resetAcceptance = passwordResetGate.accept(
+                            email, exchange.getRemoteAddress());
                 } else {
-                    throw new ClientError(400, "purpose must be register or bind");
+                    throw new ClientError(
+                            400, "purpose must be register, bind, or reset-password");
                 }
 
-                EmailVerificationService.SendResult result =
-                        verificationService.sendCode(purpose, context, email);
+                EmailVerificationService.SendResult result;
+                if (resetAcceptance == null) {
+                    result = verificationService.sendCode(purpose, context, email);
+                } else {
+                    result = new EmailVerificationService.SendResult(
+                            email,
+                            resetAcceptance.expiresAt(),
+                            resetAcceptance.resendAvailableAt());
+                    if (emailStore.findUserId(email).isPresent()) {
+                        verificationService.sendCodeInBackground(
+                                purpose, context, email);
+                    }
+                }
                 Map<String, Object> response = new LinkedHashMap<>();
                 response.put("success", true);
-                response.put("email", result.email());
+                response.put("email", email);
                 if (verificationFlowId != null) {
                     response.put("verificationFlowId", verificationFlowId);
                 }
@@ -820,6 +856,167 @@ public final class WebServer {
             } catch (IOException error) {
                 error.printStackTrace(System.err);
                 sendJsonError(exchange, 502, "Unable to deliver verification email");
+            } catch (RuntimeException error) {
+                error.printStackTrace(System.err);
+                sendJsonError(exchange, 500, "Internal server error");
+            } finally {
+                exchange.close();
+            }
+        }
+    }
+
+    private static final class PasswordResetRequestGate {
+        private static final Duration SOURCE_WINDOW = Duration.ofHours(1);
+        private static final int MAX_REQUESTS_PER_SOURCE = 20;
+        private static final int MAX_GLOBAL_REQUESTS = 1_000;
+        private static final int MAX_TRACKED_EMAILS = 10_000;
+
+        private final Object monitor = new Object();
+        private final Map<String, Instant> resendAvailableByEmail = new HashMap<>();
+        private final Map<String, ArrayDeque<Instant>> requestsBySource =
+                new HashMap<>();
+        private final ArrayDeque<Instant> globalRequests = new ArrayDeque<>();
+
+        private Acceptance accept(
+                String email, InetSocketAddress remoteAddress) {
+            Instant now = Instant.now();
+            String source = requestSource(remoteAddress);
+            synchronized (monitor) {
+                cleanup(now);
+                Instant emailAvailableAt = resendAvailableByEmail.get(email);
+                if (emailAvailableAt != null && now.isBefore(emailAvailableAt)) {
+                    throw resetRateLimit(
+                            "Please wait before requesting another verification code",
+                            now,
+                            emailAvailableAt);
+                }
+
+                ArrayDeque<Instant> sourceRequests = requestsBySource
+                        .computeIfAbsent(source, ignored -> new ArrayDeque<>());
+                if (sourceRequests.size() >= MAX_REQUESTS_PER_SOURCE) {
+                    throw resetRateLimit(
+                            "Too many password reset requests were made",
+                            now,
+                            sourceRequests.peekFirst().plus(SOURCE_WINDOW));
+                }
+                if (globalRequests.size() >= MAX_GLOBAL_REQUESTS) {
+                    throw resetRateLimit(
+                            "The password reset service is temporarily busy",
+                            now,
+                            globalRequests.peekFirst().plus(SOURCE_WINDOW));
+                }
+                if (resendAvailableByEmail.size() >= MAX_TRACKED_EMAILS) {
+                    throw new EmailVerificationService.RateLimitException(
+                            "The password reset service is temporarily busy", 60);
+                }
+
+                Instant resendAvailableAt = now.plus(
+                        EmailVerificationService.RESEND_COOLDOWN);
+                resendAvailableByEmail.put(email, resendAvailableAt);
+                sourceRequests.addLast(now);
+                globalRequests.addLast(now);
+                return new Acceptance(
+                        now.plus(EmailVerificationService.CODE_TTL),
+                        resendAvailableAt);
+            }
+        }
+
+        private void cleanup(Instant now) {
+            resendAvailableByEmail.entrySet().removeIf(
+                    entry -> !entry.getValue().isAfter(now));
+            Instant oldest = now.minus(SOURCE_WINDOW);
+            globalRequests.removeIf(requestedAt -> requestedAt.isBefore(oldest));
+            requestsBySource.entrySet().removeIf(entry -> {
+                entry.getValue().removeIf(
+                        requestedAt -> requestedAt.isBefore(oldest));
+                return entry.getValue().isEmpty();
+            });
+        }
+
+        private static EmailVerificationService.RateLimitException resetRateLimit(
+                String message, Instant now, Instant availableAt) {
+            long seconds = Math.max(
+                    1, Duration.between(now, availableAt).toSeconds() + 1);
+            return new EmailVerificationService.RateLimitException(message, seconds);
+        }
+
+        private static String requestSource(InetSocketAddress remoteAddress) {
+            if (remoteAddress == null) {
+                return "unknown";
+            }
+            if (remoteAddress.getAddress() != null) {
+                return remoteAddress.getAddress().getHostAddress();
+            }
+            return remoteAddress.getHostString().toLowerCase(Locale.ROOT);
+        }
+
+        private record Acceptance(
+                Instant expiresAt, Instant resendAvailableAt) {
+        }
+    }
+
+    private static final class PasswordResetHandler implements HttpHandler {
+        private final AuthService authService;
+        private final UserEmailStore emailStore;
+        private final EmailVerificationService verificationService;
+
+        private PasswordResetHandler(
+                AuthService authService,
+                UserEmailStore emailStore,
+                EmailVerificationService verificationService) {
+            this.authService = Objects.requireNonNull(authService, "authService");
+            this.emailStore = Objects.requireNonNull(emailStore, "emailStore");
+            this.verificationService = verificationService;
+        }
+
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            try {
+                requireExactApiPath(exchange, AUTH_PASSWORD_RESET_PATH);
+                if (handleOptions(exchange, "POST, OPTIONS")) {
+                    return;
+                }
+                if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                    methodNotAllowed(exchange, "POST, OPTIONS");
+                    return;
+                }
+                rejectQueryParameters(exchange, "The password reset endpoint");
+                if (verificationService == null) {
+                    throw new ClientError(503, "Email verification is not configured");
+                }
+                Map<String, String> document = parseStringDocument(
+                        exchange,
+                        MAX_AUTH_REQUEST_BYTES,
+                        PASSWORD_RESET_KEYS,
+                        256);
+                String email = UserEmailStore.normalizeEmail(document.get("email"));
+                String verificationFlowId = requireVerificationFlowId(
+                        document.get("verificationFlowId"));
+                AuthService.validateNewPassword(document.get("newPassword"));
+                try (EmailVerificationService.VerificationReservation reservation =
+                        requireVerifiedEmailReservation(
+                                verificationService,
+                                EmailVerificationService.Purpose.RESET_PASSWORD,
+                                verificationFlowId,
+                                email,
+                                document.get("verificationCode"))) {
+                    authService.resetPasswordByEmail(
+                            email, document.get("newPassword"));
+                    reservation.consume();
+                }
+                clearSessionCookie(exchange);
+                sendJson(exchange, 200, Json.stringify(Map.of("success", true)));
+            } catch (AuthService.InvalidPasswordResetException error) {
+                sendJsonError(exchange, 400, "Email verification code is invalid");
+            } catch (AuthService.ValidationException
+                    | UserEmailStore.ValidationException
+                    | EmailVerificationService.ValidationException error) {
+                sendJsonError(exchange, 400, error.getMessage());
+            } catch (ClientError error) {
+                sendJsonError(exchange, error.status(), error.getMessage());
+            } catch (IOException error) {
+                error.printStackTrace(System.err);
+                sendJsonError(exchange, 500, "Unable to reset account password");
             } catch (RuntimeException error) {
                 error.printStackTrace(System.err);
                 sendJsonError(exchange, 500, "Internal server error");
@@ -891,16 +1088,19 @@ public final class WebServer {
                             EmailVerificationService.Purpose purpose = current.isPresent()
                                     ? EmailVerificationService.Purpose.REBIND
                                     : EmailVerificationService.Purpose.BIND;
-                            requireVerifiedEmailCode(
-                                    verificationService.verifyAndConsume(
+                            try (EmailVerificationService.VerificationReservation reservation =
+                                    requireVerifiedEmailReservation(
+                                            verificationService,
                                             purpose,
                                             verifiedUser.id(),
                                             email,
-                                            document.get("verificationCode")));
-                            if (current.isPresent()) {
-                                emailStore.rebind(verifiedUser.id(), email);
-                            } else {
-                                emailStore.bind(verifiedUser.id(), email);
+                                            document.get("verificationCode"))) {
+                                if (current.isPresent()) {
+                                    emailStore.rebind(verifiedUser.id(), email);
+                                } else {
+                                    emailStore.bind(verifiedUser.id(), email);
+                                }
+                                reservation.consume();
                             }
                             return verifiedUser.id();
                         });
@@ -2358,6 +2558,10 @@ public final class WebServer {
             if (relativePath.isBlank()) {
                 relativePath = "index.html";
             }
+            if ("register.html".equals(relativePath)
+                    || "forgot-password.html".equals(relativePath)) {
+                relativePath = "login.html";
+            }
 
             Path candidate = realRoot.resolve(relativePath).normalize();
             if (!candidate.startsWith(realRoot)) {
@@ -2422,8 +2626,8 @@ public final class WebServer {
         if (!(rawPassword instanceof String password)) {
             throw new ClientError(400, "password must be a string");
         }
-        if (username.length() > 128) {
-            throw new ClientError(400, "username is too long");
+        if (username.length() > 254) {
+            throw new ClientError(400, "username or email is too long");
         }
         if (password.length() > 256) {
             throw new ClientError(400, "password is too long");
@@ -2651,6 +2855,20 @@ public final class WebServer {
             AuthService authService) {
         return authService.authenticateSession(sessionToken(exchange))
                 .orElseThrow(() -> new ClientError(401, "Authentication required"));
+    }
+
+    private static EmailVerificationService.VerificationReservation
+            requireVerifiedEmailReservation(
+                    EmailVerificationService service,
+                    EmailVerificationService.Purpose purpose,
+                    String context,
+                    String email,
+                    String code) {
+        EmailVerificationService.VerificationAttempt attempt =
+                service.reserveVerifiedCode(purpose, context, email, code);
+        requireVerifiedEmailCode(attempt.result());
+        return Objects.requireNonNull(
+                attempt.reservation(), "verified code reservation");
     }
 
     private static void requireVerifiedEmailCode(

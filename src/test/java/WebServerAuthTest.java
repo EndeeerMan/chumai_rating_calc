@@ -50,6 +50,12 @@ public final class WebServerAuthTest {
             HttpHandler charts = handler(
                     "WebServer$UserChartsHandler",
                     new Class<?>[]{AuthService.class, UserStore.class}, auth, store);
+            HttpHandler staticFiles = handler(
+                    "WebServer$StaticHandler",
+                    new Class<?>[]{Path.class},
+                    Path.of("web").toAbsolutePath());
+
+            verifyAuthenticationPageRoutes(staticFiles);
 
             FakeExchange response = request(
                     status, "GET", "/api/auth/status", null, null, null);
@@ -62,7 +68,7 @@ public final class WebServerAuthTest {
             expect(415, response.status, "register requires JSON");
 
             String credentials = "{\"username\":\"Player\","
-                    + "\"password\":\"correct horse battery staple\"}";
+                    + "\"password\":\"CorrectHorse#2026\"}";
             response = request(register, "POST", "/api/auth/register",
                     credentials, "application/json; charset=utf-8", null);
             expect(200, response.status, "registration succeeds");
@@ -132,7 +138,7 @@ public final class WebServerAuthTest {
                     "loaded revision matches the committed revision");
 
             String secondCredentials = "{\"username\":\"SecondPlayer\","
-                    + "\"password\":\"another correct horse battery staple\"}";
+                    + "\"password\":\"AnotherSecure#2026\"}";
             response = request(register, "POST", "/api/auth/register",
                     secondCredentials, "application/json", null);
             expect(200, response.status, "second registration succeeds");
@@ -269,6 +275,26 @@ public final class WebServerAuthTest {
         } finally {
             deleteTree(temporary);
         }
+    }
+
+    private static void verifyAuthenticationPageRoutes(HttpHandler staticFiles)
+            throws IOException {
+        FakeExchange login = request(
+                staticFiles, "GET", "/login.html", null, null, null);
+        FakeExchange register = request(
+                staticFiles, "GET", "/register.html", null, null, null);
+        FakeExchange forgot = request(
+                staticFiles, "GET", "/forgot-password.html", null, null, null);
+        expect(200, login.status, "login page is served directly");
+        expect(200, register.status, "register page route is served");
+        expect(200, forgot.status, "forgot-password page route is served");
+        expect(login.body(), register.body(),
+                "register route uses the shared authentication document");
+        expect(login.body(), forgot.body(),
+                "forgot-password route uses the shared authentication document");
+        expect("text/html; charset=utf-8",
+                login.responseHeaders.getFirst("Content-Type"),
+                "authentication document has the HTML content type");
     }
 
     private static String chartUpdate(

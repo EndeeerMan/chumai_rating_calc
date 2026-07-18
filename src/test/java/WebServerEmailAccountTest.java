@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Dependency-free HTTP contract tests for verified email and account deletion.
@@ -41,9 +42,9 @@ import java.util.UUID;
  */
 public final class WebServerEmailAccountTest {
     private static final String LEGACY_PASSWORD =
-            "legacy correct horse battery staple";
+            "LegacySecure#2026";
     private static final String TARGET_PASSWORD =
-            "target correct horse battery staple";
+            "TargetSecure#2026";
     private static final String PLAYED_AT = "2026-07-17T02:00:00Z";
     private static final String IMPORTED_AT = "2026-07-17T02:01:00Z";
 
@@ -117,6 +118,15 @@ public final class WebServerEmailAccountTest {
                 "WebServer$LoginHandler",
                 new Class<?>[]{AuthService.class},
                 auth);
+        HttpHandler passwordReset = handler(
+                "WebServer$PasswordResetHandler",
+                new Class<?>[]{
+                        AuthService.class,
+                        UserEmailStore.class,
+                        EmailVerificationService.class},
+                auth,
+                emails,
+                verification);
         HttpHandler userEmail = handler(
                 "WebServer$UserEmailHandler",
                 new Class<?>[]{
@@ -230,6 +240,15 @@ public final class WebServerEmailAccountTest {
                 targetCookie);
         expect(409, conflictingBind.status,
                 "email uniqueness is case-insensitive across different users");
+
+        verifyPasswordReset(
+                emailCode,
+                passwordReset,
+                login,
+                auth,
+                emails,
+                sender,
+                legacy);
 
         seedDeletionData(
                 users,
@@ -401,6 +420,36 @@ public final class WebServerEmailAccountTest {
                 null);
         expect(400, response.status,
                 "verification code cannot cross registration flow ids");
+
+        response = request(
+                register,
+                "POST",
+                "/api/auth/register",
+                registrationDocument(
+                        "Bad-Name",
+                        TARGET_PASSWORD,
+                        alpha.email(),
+                        alpha.code(),
+                        alpha.flowId()),
+                "application/json",
+                null);
+        expect(400, response.status,
+                "invalid registration credentials are rejected before consuming the code");
+
+        response = request(
+                register,
+                "POST",
+                "/api/auth/register",
+                registrationDocument(
+                        "LegacyPlayer",
+                        TARGET_PASSWORD,
+                        alpha.email(),
+                        alpha.code(),
+                        alpha.flowId()),
+                "application/json",
+                null);
+        expect(409, response.status,
+                "duplicate username failure returns the reserved registration code");
 
         response = request(
                 userEmail,
@@ -588,6 +637,160 @@ public final class WebServerEmailAccountTest {
         expect(legacy.user().id(),
                 object(object(Json.parse(response.body())).get("user")).get("id"),
                 "replacement email still resolves to the same user id");
+    }
+
+    private static void verifyPasswordReset(
+            HttpHandler emailCode,
+            HttpHandler passwordReset,
+            HttpHandler login,
+            AuthService auth,
+            UserEmailStore emails,
+            CapturingSender sender,
+            AuthService.SessionHandle retainedUser) throws IOException {
+        String email = "a".repeat(64) + "@"
+                + "b".repeat(50) + "." + "c".repeat(50) + ".com";
+        String unknownEmail = "missing.player@example.com";
+        String oldPassword = "ResetOld#2026";
+        String newPassword = "ResetNew#2026";
+        AuthService.SessionHandle first = auth.register("ResetPlayer", oldPassword);
+        AuthService.SessionHandle second = auth.login("resetplayer", oldPassword);
+        emails.bind(first.user().id(), email);
+
+        int deliveriesBefore = sender.deliveries.size();
+        FakeExchange unknownRequest = request(
+                emailCode,
+                "POST",
+                "/api/auth/email/code",
+                emailCodeDocument(unknownEmail, "reset-password"),
+                "application/json",
+                null);
+        expect(200, unknownRequest.status,
+                "unknown reset email receives the same accepted response");
+        expect(deliveriesBefore, sender.deliveries.size(),
+                "unknown reset email never invokes the mail sender");
+        Map<String, Object> unknownBody = object(Json.parse(unknownRequest.body()));
+        String unknownFlowId = (String) unknownBody.get("verificationFlowId");
+        expect(unknownFlowId, UUID.fromString(unknownFlowId).toString(),
+                "unknown reset response still uses an opaque flow id");
+
+        FakeExchange knownRequest = request(
+                emailCode,
+                "POST",
+                "/api/auth/email/code",
+                emailCodeDocument(email, "reset-password"),
+                "application/json",
+                null);
+        expect(200, knownRequest.status,
+                "bound email can request a password-reset code");
+        String code = sender.awaitCode(email);
+        expect(deliveriesBefore + 1, sender.deliveries.size(),
+                "bound reset email invokes the sender exactly once");
+        Map<String, Object> knownBody = object(Json.parse(knownRequest.body()));
+        expect(unknownBody.keySet(), knownBody.keySet(),
+                "known and unknown reset responses expose the same fields");
+        expect(600L, integer(knownBody.get("expiresInSeconds")),
+                "password-reset code is valid for ten minutes");
+        expect(120L, integer(knownBody.get("resendAfterSeconds")),
+                "password-reset resend waits two minutes");
+        String flowId = (String) knownBody.get("verificationFlowId");
+
+        FakeExchange unknownResend = request(
+                emailCode,
+                "POST",
+                "/api/auth/email/code",
+                emailCodeDocument(unknownEmail, "reset-password"),
+                "application/json",
+                null);
+        FakeExchange knownResend = request(
+                emailCode,
+                "POST",
+                "/api/auth/email/code",
+                emailCodeDocument(email, "reset-password"),
+                "application/json",
+                null);
+        expect(429, unknownResend.status,
+                "unknown reset email follows the normal resend cooldown");
+        expect(429, knownResend.status,
+                "known reset email follows the same resend cooldown");
+        expect(deliveriesBefore + 1, sender.deliveries.size(),
+                "rate-limited reset requests never send more mail");
+
+        FakeExchange invalidPassword = request(
+                passwordReset,
+                "POST",
+                "/api/auth/password/reset",
+                passwordResetDocument(email, code, flowId, "Bad pass#1"),
+                "application/json",
+                null);
+        expect(400, invalidPassword.status,
+                "password reset rejects a password outside the ASCII policy");
+        expect(true, auth.authenticateSession(first.token()).isPresent(),
+                "invalid replacement password does not consume the old session");
+
+        FakeExchange wrongCodeResponse = request(
+                passwordReset,
+                "POST",
+                "/api/auth/password/reset",
+                passwordResetDocument(
+                        email, wrongCode(code), flowId, newPassword),
+                "application/json",
+                null);
+        expect(400, wrongCodeResponse.status,
+                "password reset rejects an incorrect verification code");
+        expect(true, auth.authenticateSession(first.token()).isPresent(),
+                "failed reset preserves the first old session");
+        expect(true, auth.authenticateSession(second.token()).isPresent(),
+                "failed reset preserves the second old session");
+
+        FakeExchange reset = request(
+                passwordReset,
+                "POST",
+                "/api/auth/password/reset",
+                passwordResetDocument(email, code, flowId, newPassword),
+                "application/json",
+                null);
+        expect(200, reset.status,
+                "verified email challenge resets the password");
+        expect(true, object(Json.parse(reset.body())).get("success"),
+                "password reset reports success");
+        expect(true,
+                reset.responseHeaders.getFirst("Set-Cookie").contains("Max-Age=0"),
+                "password reset clears any browser session cookie");
+        expect(false, auth.authenticateSession(first.token()).isPresent(),
+                "successful reset revokes the first old session");
+        expect(false, auth.authenticateSession(second.token()).isPresent(),
+                "successful reset revokes every old session for the account");
+        expect(true, auth.authenticateSession(retainedUser.token()).isPresent(),
+                "password reset leaves another user's session active");
+
+        FakeExchange oldLogin = request(
+                login,
+                "POST",
+                "/api/auth/login",
+                credentials(email, oldPassword),
+                "application/json",
+                null);
+        expect(401, oldLogin.status,
+                "old password no longer authenticates after reset");
+        FakeExchange newLogin = request(
+                login,
+                "POST",
+                "/api/auth/login",
+                credentials(email.toUpperCase(), newPassword),
+                "application/json",
+                null);
+        expect(200, newLogin.status,
+                "new password authenticates by email after reset");
+
+        FakeExchange replay = request(
+                passwordReset,
+                "POST",
+                "/api/auth/password/reset",
+                passwordResetDocument(email, code, flowId, "ReplayNew#2026"),
+                "application/json",
+                null);
+        expect(400, replay.status,
+                "consumed password-reset code cannot be replayed");
     }
 
     private static void seedDeletionData(
@@ -865,6 +1068,16 @@ public final class WebServerEmailAccountTest {
         return Json.stringify(value);
     }
 
+    private static String passwordResetDocument(
+            String email, String code, String flowId, String newPassword) {
+        Map<String, Object> value = new LinkedHashMap<>();
+        value.put("email", email);
+        value.put("verificationCode", code);
+        value.put("verificationFlowId", flowId);
+        value.put("newPassword", newPassword);
+        return Json.stringify(value);
+    }
+
     private static String accountDeletionDocument(String currentPassword) {
         return Json.stringify(Map.of("currentPassword", currentPassword));
     }
@@ -957,7 +1170,7 @@ public final class WebServerEmailAccountTest {
 
     private static final class CapturingSender
             implements EmailVerificationService.EmailSender {
-        private final List<Delivery> deliveries = new ArrayList<>();
+        private final List<Delivery> deliveries = new CopyOnWriteArrayList<>();
 
         @Override
         public void sendVerificationCode(String recipient, String sixDigitCode) {
@@ -973,6 +1186,24 @@ public final class WebServerEmailAccountTest {
                 }
             }
             throw new AssertionError("no captured verification code for " + normalized);
+        }
+
+        private String awaitCode(String email) throws IOException {
+            long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
+            while (System.nanoTime() < deadline) {
+                try {
+                    return lastCode(email);
+                } catch (AssertionError pending) {
+                    try {
+                        Thread.sleep(10);
+                    } catch (InterruptedException error) {
+                        Thread.currentThread().interrupt();
+                        throw new IOException(
+                                "interrupted while awaiting verification email", error);
+                    }
+                }
+            }
+            throw new IOException("timed out awaiting verification email");
         }
     }
 

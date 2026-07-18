@@ -51,14 +51,14 @@ public final class WebServerProfileTest {
                     new Class<?>[]{AuthService.class},
                     auth);
 
-            String originalPassword = "correct horse battery staple";
-            String replacementPassword = "a newly rotated secure password";
+            String originalPassword = "CorrectHorse#2026";
+            String replacementPassword = "RotatedSecure#2026";
             AuthService.SessionHandle first = auth.register(
                     "PlayerOne", originalPassword);
             AuthService.SessionHandle firstParallel = auth.login(
                     "playerone", originalPassword);
             AuthService.SessionHandle second = auth.register(
-                    "SecondPlayer", "a different secure password");
+                    "SecondPlayer", "DifferentSecure#2026");
             String firstCookie = sessionCookie(first.token());
             String firstParallelCookie = sessionCookie(firstParallel.token());
             String secondCookie = sessionCookie(second.token());

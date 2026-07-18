@@ -57,11 +57,9 @@ body.auth-checking > dialog {
   justify-items: center;
   gap: 9px;
   padding: 24px;
-  background: rgba(244, 249, 247, 0.9);
+  background: #f4f9f7;
   color: var(--ink, var(--text));
   text-align: center;
-  -webkit-backdrop-filter: blur(18px);
-  backdrop-filter: blur(18px);
 }
 
 .auth-startup-mask[hidden] {

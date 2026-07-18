@@ -225,7 +225,9 @@ test("登录门禁仍保护同步和导入操作", () => {
   assert.ok(js.includes('const AUTH_STATUS_ENDPOINT = "/api/auth/status"'));
   assert.ok(js.includes('credentials: options?.credentials || "same-origin"'));
   assert.ok(js.includes("state.authReady && state.authenticated"));
-  assert.ok(html.includes("本站不提供游客模式"));
+  assert.match(html, /id="login-link" href="\/login\.html"/);
+  assert.match(js, /window\.location\.replace\("\/login\.html"\)/);
+  assert.doesNotMatch(html, /id="auth-dialog"|id="auth-form"/);
 });
 
 test("舞萌与中二都可上传 JSON，最多五份", () => {

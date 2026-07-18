@@ -46,9 +46,9 @@ public final class WebServerSyncTest {
             ChunithmCatalog chunithmCatalog = chunithmCatalog();
             SyncSessionStore sessions = new SyncSessionStore();
             AuthService.SessionHandle first = auth.register(
-                    "SyncPlayer", "correct horse battery staple");
+                    "SyncPlayer", "CorrectHorse#2026");
             AuthService.SessionHandle second = auth.register(
-                    "OtherPlayer", "another correct horse battery staple");
+                    "OtherPlayer", "AnotherSecure#2026");
             String firstCookie = cookie(first.token());
             String secondCookie = cookie(second.token());
 

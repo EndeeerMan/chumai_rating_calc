@@ -47,9 +47,9 @@ public final class WebServerChunithmUserChartsTest {
             testUnauthorizedAndMethodContract(handler);
 
             AuthService.SessionHandle firstSession = auth.register(
-                    "ChuniPlayerOne", "correct horse battery staple one");
+                    "ChuniPlayerOne", "CorrectHorseOne#2026");
             AuthService.SessionHandle secondSession = auth.register(
-                    "ChuniPlayerTwo", "correct horse battery staple two");
+                    "ChuniPlayerTwo", "CorrectHorseTwo#2026");
             String firstCookie = cookie(firstSession.token());
             String secondCookie = cookie(secondSession.token());
             String firstUserId = firstSession.user().id();

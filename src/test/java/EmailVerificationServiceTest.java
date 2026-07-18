@@ -24,12 +24,14 @@ public final class EmailVerificationServiceTest {
 
     public static void main(String[] args) throws Exception {
         testDeliveryAndOneTimeVerification();
+        testReservationRollbackAndConsumption();
         testPurposeAndContextIsolation();
         testTwoMinuteCooldownAndReplacement();
         testExpirationBoundary();
         testFiveAttemptLimit();
         testHourlyEmailRateLimit();
         testGlobalHourlyBudget();
+        testPasswordResetDeliveryUsesIndependentBudget();
         testConcurrentDeliveryIsSerializedPerEmail();
         testGlobalConcurrentDeliveryLimit();
         testInvalidateCancelsInFlightPublication();
@@ -83,6 +85,64 @@ public final class EmailVerificationServiceTest {
                         "player@example.com",
                         delivery.code()),
                 "a consumed code cannot be replayed");
+    }
+
+    private static void testReservationRollbackAndConsumption() throws Exception {
+        MutableClock clock = clock();
+        CapturingSender sender = new CapturingSender();
+        EmailVerificationService service = service(sender, clock, 8L);
+        service.sendCode(
+                EmailVerificationService.Purpose.REGISTER,
+                "reservation-rollback",
+                "rollback@example.com");
+        String rollbackCode = sender.last().code();
+
+        EmailVerificationService.VerificationAttempt rollbackAttempt =
+                service.reserveVerifiedCode(
+                        EmailVerificationService.Purpose.REGISTER,
+                        "reservation-rollback",
+                        "rollback@example.com",
+                        rollbackCode);
+        expect(EmailVerificationService.VerificationResult.VERIFIED,
+                rollbackAttempt.result(),
+                "valid code can be reserved for a dependent write");
+        expect(EmailVerificationService.VerificationResult.NOT_FOUND,
+                service.verifyAndConsume(
+                        EmailVerificationService.Purpose.REGISTER,
+                        "reservation-rollback",
+                        "rollback@example.com",
+                        rollbackCode),
+                "reserved code cannot be used concurrently");
+        rollbackAttempt.reservation().close();
+        expect(EmailVerificationService.VerificationResult.VERIFIED,
+                service.verifyAndConsume(
+                        EmailVerificationService.Purpose.REGISTER,
+                        "reservation-rollback",
+                        "rollback@example.com",
+                        rollbackCode),
+                "closing an unconsumed reservation restores the code");
+
+        service.sendCode(
+                EmailVerificationService.Purpose.REGISTER,
+                "reservation-consume",
+                "consume@example.com");
+        String consumedCode = sender.last().code();
+        EmailVerificationService.VerificationAttempt consumedAttempt =
+                service.reserveVerifiedCode(
+                        EmailVerificationService.Purpose.REGISTER,
+                        "reservation-consume",
+                        "consume@example.com",
+                        consumedCode);
+        consumedAttempt.reservation().consume();
+        consumedAttempt.reservation().close();
+        expect(EmailVerificationService.VerificationResult.NOT_FOUND,
+                service.verifyAndConsume(
+                        EmailVerificationService.Purpose.REGISTER,
+                        "reservation-consume",
+                        "consume@example.com",
+                        consumedCode),
+                "consumed reservation remains one-time after close");
+        service.close();
     }
 
     private static void testPurposeAndContextIsolation() throws Exception {
@@ -366,6 +426,44 @@ public final class EmailVerificationServiceTest {
                 "global budget entries expire at exactly one hour");
     }
 
+    private static void testPasswordResetDeliveryUsesIndependentBudget()
+            throws Exception {
+        MutableClock clock = clock();
+        ResetAwaitingSender sender = new ResetAwaitingSender();
+        EmailVerificationService service = new EmailVerificationService(
+                sender, clock, new SequenceSecureRandom(71));
+        for (int index = 0;
+                index < EmailVerificationService.MAX_GLOBAL_SENDS_PER_WINDOW;
+                index++) {
+            service.sendCode(
+                    EmailVerificationService.Purpose.REGISTER,
+                    "main-budget-" + index,
+                    "main-budget-" + index + "@example.com");
+        }
+        expectThrows(
+                EmailVerificationService.RateLimitException.class,
+                () -> service.sendCode(
+                        EmailVerificationService.Purpose.REGISTER,
+                        "main-budget-overflow",
+                        "main-budget-overflow@example.com"),
+                "normal email delivery reaches the shared hourly budget");
+
+        service.sendCodeInBackground(
+                EmailVerificationService.Purpose.RESET_PASSWORD,
+                "reset-independent-budget",
+                ResetAwaitingSender.RESET_EMAIL);
+        expect(true, sender.resetDelivered.await(3, TimeUnit.SECONDS),
+                "password reset still delivers after the main budget is exhausted");
+        expect(EmailVerificationService.VerificationResult.VERIFIED,
+                service.verifyAndConsume(
+                        EmailVerificationService.Purpose.RESET_PASSWORD,
+                        "reset-independent-budget",
+                        ResetAwaitingSender.RESET_EMAIL,
+                        sender.resetCode),
+                "independently delivered reset code is verifiable");
+        service.close();
+    }
+
     private static void testGlobalConcurrentDeliveryLimit() throws Exception {
         MutableClock clock = clock();
         MultiBlockingSender sender = new MultiBlockingSender(
@@ -596,6 +694,21 @@ public final class EmailVerificationServiceTest {
 
         Delivery last() {
             return deliveries.getLast();
+        }
+    }
+
+    private static final class ResetAwaitingSender
+            implements EmailVerificationService.EmailSender {
+        private static final String RESET_EMAIL = "reset-budget@example.com";
+        private final CountDownLatch resetDelivered = new CountDownLatch(1);
+        private volatile String resetCode;
+
+        @Override
+        public void sendVerificationCode(String recipient, String code) {
+            if (RESET_EMAIL.equals(recipient)) {
+                resetCode = code;
+                resetDelivered.countDown();
+            }
         }
     }
 

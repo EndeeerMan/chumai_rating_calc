@@ -13,6 +13,7 @@ import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.Semaphore;
 import java.text.Normalizer;
 
 /** Thread-safe, in-memory lifecycle for one-time email verification codes. */
@@ -37,9 +38,13 @@ public final class EmailVerificationService implements AutoCloseable {
     private final Map<ChallengeKey, Challenge> challenges = new HashMap<>();
     private final Map<String, Instant> resendAvailableByEmail = new HashMap<>();
     private final Map<ChallengeKey, Long> inFlight = new HashMap<>();
+    private final Map<ChallengeKey, Long> resetInFlight = new HashMap<>();
+    private final Map<ChallengeKey, Long> reservedCodes = new HashMap<>();
     private final Map<String, Long> inFlightByEmail = new HashMap<>();
     private final Map<String, ArrayDeque<Instant>> sendsByEmail = new HashMap<>();
     private final ArrayDeque<Instant> globalSends = new ArrayDeque<>();
+    private final Semaphore resetDeliverySlots =
+            new Semaphore(MAX_CONCURRENT_DELIVERIES);
     private long deliverySequence;
     private boolean closed;
 
@@ -107,7 +112,8 @@ public final class EmailVerificationService implements AutoCloseable {
                         requestedAt,
                         retryAt);
             }
-            if (challenges.size() + inFlight.size() >= MAX_ACTIVE_CHALLENGES
+            if (challenges.size() + inFlight.size() + resetInFlight.size()
+                    + reservedCodes.size() >= MAX_ACTIVE_CHALLENGES
                     && !challenges.containsKey(key)) {
                 throw new RateLimitException(
                         "Too many verification requests are active", 60);
@@ -168,8 +174,113 @@ public final class EmailVerificationService implements AutoCloseable {
                 resendAt);
     }
 
+    /** Delivers a code without exposing SMTP timing or failures to the caller. */
+    public void sendCodeInBackground(
+            Purpose purpose, String context, String email) {
+        Purpose safePurpose = Objects.requireNonNull(purpose, "purpose must not be null");
+        if (safePurpose != Purpose.RESET_PASSWORD) {
+            throw new IllegalArgumentException(
+                    "background delivery is reserved for password reset");
+        }
+        String safeContext = normalizeContext(context);
+        String normalizedEmail = UserEmailStore.normalizeEmail(email);
+        Thread.ofVirtual()
+                .name("email-verification-delivery")
+                .start(() -> {
+                    boolean acquired = false;
+                    try {
+                        resetDeliverySlots.acquire();
+                        acquired = true;
+                        sendResetCode(safePurpose, safeContext, normalizedEmail);
+                    } catch (InterruptedException error) {
+                        Thread.currentThread().interrupt();
+                    } catch (IOException | RuntimeException error) {
+                        System.err.println(
+                                "Warning: background verification email delivery failed ("
+                                        + error.getClass().getSimpleName() + ")");
+                    } finally {
+                        if (acquired) {
+                            resetDeliverySlots.release();
+                        }
+                    }
+                });
+    }
+
+    private SendResult sendResetCode(
+            Purpose purpose, String context, String email) throws IOException {
+        if (purpose != Purpose.RESET_PASSWORD) {
+            throw new IllegalArgumentException(
+                    "background delivery is reserved for password reset");
+        }
+        ChallengeKey key = new ChallengeKey(purpose, context, email);
+        String code = String.format(Locale.ROOT, "%06d", random.nextInt(1_000_000));
+        byte[] salt = new byte[SALT_BYTES];
+        random.nextBytes(salt);
+        byte[] codeHash = hashCode(key, salt, code);
+        long deliveryId;
+        synchronized (monitor) {
+            requireOpenLocked();
+            cleanupLocked(clock.instant());
+            if (challenges.size() + inFlight.size() + resetInFlight.size()
+                    + reservedCodes.size() >= MAX_ACTIVE_CHALLENGES
+                    && !challenges.containsKey(key)) {
+                Arrays.fill(salt, (byte) 0);
+                Arrays.fill(codeHash, (byte) 0);
+                throw new RateLimitException(
+                        "Too many verification requests are active", 60);
+            }
+            deliveryId = ++deliverySequence;
+            resetInFlight.put(key, deliveryId);
+        }
+
+        try {
+            sender.sendVerificationCode(email, code);
+        } catch (IOException | RuntimeException error) {
+            synchronized (monitor) {
+                resetInFlight.remove(key, deliveryId);
+            }
+            Arrays.fill(salt, (byte) 0);
+            Arrays.fill(codeHash, (byte) 0);
+            throw error;
+        }
+
+        Instant deliveredAt = clock.instant();
+        Instant expiresAt = deliveredAt.plus(CODE_TTL);
+        Instant resendAt = deliveredAt.plus(RESEND_COOLDOWN);
+        synchronized (monitor) {
+            if (!resetInFlight.remove(key, deliveryId)) {
+                Arrays.fill(salt, (byte) 0);
+                Arrays.fill(codeHash, (byte) 0);
+                throw new DeliveryCancelledException();
+            }
+            Challenge previous = challenges.put(
+                    key, new Challenge(salt, codeHash, expiresAt, 0));
+            if (previous != null) {
+                previous.erase();
+            }
+        }
+        Arrays.fill(salt, (byte) 0);
+        Arrays.fill(codeHash, (byte) 0);
+        return new SendResult(email, expiresAt, resendAt);
+    }
+
     /** Checks the code exactly once; a successful code is consumed atomically. */
     public VerificationResult verifyAndConsume(
+            Purpose purpose, String context, String email, String suppliedCode) {
+        VerificationAttempt attempt = reserveVerifiedCode(
+                purpose, context, email, suppliedCode);
+        if (attempt.result() == VerificationResult.VERIFIED) {
+            attempt.reservation().consume();
+        }
+        return attempt.result();
+    }
+
+    /**
+     * Reserves a valid code while a dependent write is in progress. Closing an
+     * unconsumed reservation restores the code so a transient write failure can
+     * be retried without requesting another email.
+     */
+    public VerificationAttempt reserveVerifiedCode(
             Purpose purpose, String context, String email, String suppliedCode) {
         Purpose safePurpose = Objects.requireNonNull(purpose, "purpose must not be null");
         String safeContext = normalizeContext(context);
@@ -181,13 +292,13 @@ public final class EmailVerificationService implements AutoCloseable {
             Challenge challenge = challenges.get(key);
             if (challenge == null) {
                 cleanupLocked(now);
-                return VerificationResult.NOT_FOUND;
+                return new VerificationAttempt(VerificationResult.NOT_FOUND, null);
             }
             if (!now.isBefore(challenge.expiresAt())) {
                 challenges.remove(key);
                 challenge.erase();
                 cleanupLocked(now);
-                return VerificationResult.EXPIRED;
+                return new VerificationAttempt(VerificationResult.EXPIRED, null);
             }
 
             boolean validFormat = isSixDigitCode(suppliedCode);
@@ -202,9 +313,13 @@ public final class EmailVerificationService implements AutoCloseable {
             }
             if (matches) {
                 challenges.remove(key);
-                challenge.erase();
+                long reservationId = ++deliverySequence;
+                reservedCodes.put(key, reservationId);
                 cleanupLocked(now);
-                return VerificationResult.VERIFIED;
+                return new VerificationAttempt(
+                        VerificationResult.VERIFIED,
+                        new VerificationReservation(
+                                key, challenge, reservationId));
             }
 
             int failedAttempts = challenge.failedAttempts() + 1;
@@ -212,7 +327,8 @@ public final class EmailVerificationService implements AutoCloseable {
                 challenges.remove(key);
                 challenge.erase();
                 cleanupLocked(now);
-                return VerificationResult.ATTEMPTS_EXHAUSTED;
+                return new VerificationAttempt(
+                        VerificationResult.ATTEMPTS_EXHAUSTED, null);
             }
             challenges.put(
                     key,
@@ -223,7 +339,7 @@ public final class EmailVerificationService implements AutoCloseable {
                             failedAttempts));
             challenge.erase();
             cleanupLocked(now);
-            return VerificationResult.INVALID_CODE;
+            return new VerificationAttempt(VerificationResult.INVALID_CODE, null);
         }
     }
 
@@ -243,6 +359,8 @@ public final class EmailVerificationService implements AutoCloseable {
             if (deliveryId != null) {
                 inFlightByEmail.remove(key.email(), deliveryId);
             }
+            resetInFlight.remove(key);
+            reservedCodes.remove(key);
         }
     }
 
@@ -260,6 +378,8 @@ public final class EmailVerificationService implements AutoCloseable {
             challenges.clear();
             resendAvailableByEmail.clear();
             inFlight.clear();
+            resetInFlight.clear();
+            reservedCodes.clear();
             inFlightByEmail.clear();
             sendsByEmail.clear();
             globalSends.clear();
@@ -385,7 +505,8 @@ public final class EmailVerificationService implements AutoCloseable {
     public enum Purpose {
         REGISTER,
         BIND,
-        REBIND
+        REBIND,
+        RESET_PASSWORD
     }
 
     public enum VerificationResult {
@@ -394,6 +515,62 @@ public final class EmailVerificationService implements AutoCloseable {
         EXPIRED,
         ATTEMPTS_EXHAUSTED,
         NOT_FOUND
+    }
+
+    public record VerificationAttempt(
+            VerificationResult result,
+            VerificationReservation reservation) {
+        public VerificationAttempt {
+            Objects.requireNonNull(result, "result must not be null");
+            if ((result == VerificationResult.VERIFIED) != (reservation != null)) {
+                throw new IllegalArgumentException(
+                        "verified attempts must carry exactly one reservation");
+            }
+        }
+    }
+
+    public final class VerificationReservation implements AutoCloseable {
+        private final ChallengeKey key;
+        private final Challenge challenge;
+        private final long reservationId;
+        private boolean active = true;
+
+        private VerificationReservation(
+                ChallengeKey key, Challenge challenge, long reservationId) {
+            this.key = key;
+            this.challenge = challenge;
+            this.reservationId = reservationId;
+        }
+
+        public void consume() {
+            synchronized (monitor) {
+                if (!active) {
+                    return;
+                }
+                active = false;
+                reservedCodes.remove(key, reservationId);
+                challenge.erase();
+            }
+        }
+
+        @Override
+        public void close() {
+            synchronized (monitor) {
+                if (!active) {
+                    return;
+                }
+                active = false;
+                boolean owned = reservedCodes.remove(key, reservationId);
+                Instant now = clock.instant();
+                if (owned && !closed && now.isBefore(challenge.expiresAt())
+                        && !challenges.containsKey(key)) {
+                    challenges.put(key, challenge);
+                    cleanupLocked(now);
+                } else {
+                    challenge.erase();
+                }
+            }
+        }
     }
 
     public record SendResult(

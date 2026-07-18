@@ -72,7 +72,7 @@ public final class AuthService {
             throws IOException {
         credentialLifecycleLock.readLock().lock();
         try {
-            Username username = validateUsername(suppliedUsername);
+            Username username = validateNewUsername(suppliedUsername);
             char[] passwordCharacters = validatePassword(password);
             byte[] salt = new byte[SALT_BYTES];
             random.nextBytes(salt);
@@ -259,6 +259,59 @@ public final class AuthService {
                 return createSession(updated);
             } finally {
                 Arrays.fill(currentCharacters, '\0');
+                Arrays.fill(replacementCharacters, '\0');
+                Arrays.fill(expectedSalt, (byte) 0);
+                Arrays.fill(expectedHash, (byte) 0);
+                Arrays.fill(replacementSalt, (byte) 0);
+                if (replacementHash != null) {
+                    Arrays.fill(replacementHash, (byte) 0);
+                }
+            }
+        } finally {
+            credentialLifecycleLock.writeLock().unlock();
+        }
+    }
+
+    /** Replaces credentials after a verified-email password-reset challenge. */
+    public void resetPasswordByEmail(String suppliedEmail, String newPassword)
+            throws IOException {
+        if (emailStore == null) {
+            throw new InvalidPasswordResetException();
+        }
+        String email;
+        try {
+            email = UserEmailStore.normalizeEmail(suppliedEmail);
+        } catch (UserEmailStore.ValidationException error) {
+            throw new InvalidPasswordResetException();
+        }
+
+        credentialLifecycleLock.writeLock().lock();
+        try {
+            String userId = emailStore.findUserId(email)
+                    .orElseThrow(InvalidPasswordResetException::new);
+            UserStore.StoredUser stored = store.findById(userId)
+                    .orElseThrow(InvalidPasswordResetException::new);
+            char[] replacementCharacters = validatePassword(newPassword);
+            byte[] expectedSalt = stored.salt();
+            byte[] expectedHash = stored.passwordHash();
+            byte[] replacementSalt = new byte[SALT_BYTES];
+            byte[] replacementHash = null;
+            try {
+                random.nextBytes(replacementSalt);
+                replacementHash = derivePasswordHash(
+                        replacementCharacters,
+                        replacementSalt,
+                        PBKDF2_ITERATIONS);
+                store.updatePassword(
+                        userId,
+                        expectedSalt,
+                        expectedHash,
+                        stored.iterations(),
+                        replacementSalt,
+                        replacementHash,
+                        PBKDF2_ITERATIONS);
+                invalidateUserSessions(userId);
+            } finally {
                 Arrays.fill(replacementCharacters, '\0');
                 Arrays.fill(expectedSalt, (byte) 0);
                 Arrays.fill(expectedHash, (byte) 0);
@@ -462,23 +515,52 @@ public final class AuthService {
         return new Username(display, canonical);
     }
 
+    private static Username validateNewUsername(String supplied) {
+        if (supplied == null) {
+            throw new ValidationException("username is required");
+        }
+        String display = supplied.strip();
+        if (display.length() < 3 || display.length() > 18) {
+            throw new ValidationException("username must be between 3 and 18 characters");
+        }
+        for (int index = 0; index < display.length(); index++) {
+            char character = display.charAt(index);
+            boolean valid = character >= 'A' && character <= 'Z'
+                    || character >= 'a' && character <= 'z'
+                    || character >= '0' && character <= '9'
+                    || character == '_';
+            if (!valid) {
+                throw new ValidationException(
+                        "username may contain only ASCII letters, numbers, and underscore");
+            }
+        }
+        return new Username(display, display.toLowerCase(Locale.ROOT));
+    }
+
+    static void validateNewCredentials(String username, String password) {
+        validateNewUsername(username);
+        validateNewPassword(password);
+    }
+
+    static void validateNewPassword(String password) {
+        char[] characters = validatePassword(password);
+        Arrays.fill(characters, '\0');
+    }
+
     private static char[] validatePassword(String password) {
         if (password == null) {
             throw new ValidationException("password is required");
         }
-        int length = password.codePointCount(0, password.length());
-        if (length < 8 || length > 128) {
-            throw new ValidationException("password must be between 8 and 128 characters");
+        if (password.length() < 6 || password.length() > 32) {
+            throw new ValidationException(
+                    "password must be between 6 and 32 ASCII characters");
         }
-        if (password.isBlank()) {
-            throw new ValidationException("password must not be blank");
-        }
-        for (int offset = 0; offset < password.length();) {
-            int codePoint = password.codePointAt(offset);
-            if (Character.isISOControl(codePoint)) {
-                throw new ValidationException("password must not contain control characters");
+        for (int index = 0; index < password.length(); index++) {
+            char character = password.charAt(index);
+            if (character < 33 || character > 126) {
+                throw new ValidationException(
+                        "password characters must have ASCII values from 33 through 126");
             }
-            offset += Character.charCount(codePoint);
         }
         return password.toCharArray();
     }
@@ -587,6 +669,15 @@ public final class AuthService {
 
         InvalidCurrentPasswordException() {
             super("Current password is incorrect");
+        }
+    }
+
+    public static final class InvalidPasswordResetException
+            extends IllegalArgumentException {
+        private static final long serialVersionUID = 1L;
+
+        InvalidPasswordResetException() {
+            super("Password reset verification is invalid");
         }
     }
 }

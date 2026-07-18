@@ -12,6 +12,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.PBEKeySpec;
+
 /** Dependency-free tests for credentials, sessions, and per-user persistence. */
 public final class UserAuthTest {
     private static int tests;
@@ -26,23 +29,55 @@ public final class UserAuthTest {
             UserStore store = new UserStore(temporary);
             AuthService auth = new AuthService(store, new SecureRandom(), clock);
 
+            String validPassword = "Valid#2026";
+
             expectThrows(AuthService.ValidationException.class,
-                    () -> auth.register("ab", "correct horse battery staple"),
+                    () -> auth.register("ab", validPassword),
                     "short username is rejected");
             expectThrows(AuthService.ValidationException.class,
-                    () -> auth.register("bad name", "correct horse battery staple"),
+                    () -> auth.register("abcdefghijklmnopqrs", validPassword),
+                    "nineteen-character username is rejected");
+            expectThrows(AuthService.ValidationException.class,
+                    () -> auth.register("bad name", validPassword),
                     "whitespace in username is rejected");
+            expectThrows(AuthService.ValidationException.class,
+                    () -> auth.register("bad-name", validPassword),
+                    "hyphen in new username is rejected");
+            expectThrows(AuthService.ValidationException.class,
+                    () -> auth.register("bad.name", validPassword),
+                    "dot in new username is rejected");
+            expectThrows(AuthService.ValidationException.class,
+                    () -> auth.register("玩家三号", validPassword),
+                    "non-ASCII new username is rejected");
             expectThrows(AuthService.ValidationException.class,
                     () -> auth.register("player", "short"),
                     "short password is rejected");
+            expectThrows(AuthService.ValidationException.class,
+                    () -> auth.register("PwdCheck", "A".repeat(33)),
+                    "thirty-three-character password is rejected");
+            expectThrows(AuthService.ValidationException.class,
+                    () -> auth.register("PwdCheck", "Bad pass#1"),
+                    "space in password is rejected");
+            expectThrows(AuthService.ValidationException.class,
+                    () -> auth.register("PwdCheck", "密码Ab#12"),
+                    "non-ASCII password is rejected");
+            expectThrows(AuthService.ValidationException.class,
+                    () -> auth.register("PwdCheck", "Abc\t#12"),
+                    "control character in password is rejected");
+            expect("Ab_", auth.register("Ab_", "!Ab1~x").user().username(),
+                    "three-character username and six-character password are accepted");
+            expect("User_1234567890123",
+                    auth.register("User_1234567890123", "~".repeat(32))
+                            .user().username(),
+                    "eighteen-character username and thirty-two-character password are accepted");
 
-            String secret = "correct horse battery staple";
+            String secret = "CorrectHorse#2026";
             AuthService.SessionHandle first = auth.register("  Player_01  ", secret);
             expect("Player_01", first.user().username(), "username is normalized");
             expect(true, auth.authenticateSession(first.token()).isPresent(),
                     "new registration is logged in");
             expectThrows(UserStore.UsernameAlreadyExistsException.class,
-                    () -> auth.register("player_01", "another secure password"),
+                    () -> auth.register("player_01", "AnotherSecure#2026"),
                     "canonical usernames are unique");
 
             String usersJson = Files.readString(
@@ -83,7 +118,7 @@ public final class UserAuthTest {
                     "sync status is persisted canonically");
 
             AuthService.SessionHandle second = auth.register(
-                    "玩家二号", "a different secure password");
+                    "PlayerTwo", "DifferentSecure#2026");
             expect(List.of(), store.loadCharts(second.user().id()),
                     "new user's charts are isolated");
             store.saveCharts(second.user().id(), List.of(new ChartInput(
@@ -106,7 +141,7 @@ public final class UserAuthTest {
             AuthService.SessionHandle preChange = auth.login("player_01", secret);
             expectThrows(AuthService.InvalidCurrentPasswordException.class,
                     () -> auth.changePassword(
-                            first.token(), "not the current password", "new secure password"),
+                            first.token(), "not the current password", "NewSecure#2026"),
                     "password change rejects the wrong current password");
             expect(true, auth.authenticateSession(first.token()).isPresent(),
                     "failed password change keeps the current session");
@@ -114,7 +149,7 @@ public final class UserAuthTest {
                     () -> auth.changePassword(first.token(), secret, "short"),
                     "password change reuses password validation");
 
-            String replacementSecret = "a newly rotated secure password";
+            String replacementSecret = "RotatedSecure#2026";
             AuthService.SessionHandle rotated = auth.changePassword(
                     first.token(), secret, replacementSecret);
             expect(false, auth.authenticateSession(first.token()).isPresent(),
@@ -136,7 +171,7 @@ public final class UserAuthTest {
             expect(false, rotatedUsersJson.contains(replacementSecret),
                     "replacement password is never persisted as plaintext");
 
-            String deletionSecret = "delete this account securely";
+            String deletionSecret = "DeleteSecure#2026";
             AuthService.SessionHandle deletionSession = auth.register(
                     "Delete_Me", deletionSecret);
             AuthService.SessionHandle deletionOtherSession = auth.login(
@@ -173,6 +208,28 @@ public final class UserAuthTest {
             expect(false, Files.exists(deletionChartFile),
                     "account deletion removes the user's maimai chart file");
             store.deleteChartData(deletionSession.user().id());
+
+            String legacyUsername = "旧.Player-01";
+            String legacyPassword = "legacy password with spaces and over thirty-two chars";
+            byte[] legacySalt = new byte[16];
+            new SecureRandom().nextBytes(legacySalt);
+            int legacyIterations = 100_000;
+            byte[] legacyHash = deriveLegacyPassword(
+                    legacyPassword, legacySalt, legacyIterations);
+            UserStore.StoredUser legacyAccount = store.createUser(
+                    legacyUsername,
+                    legacyUsername.toLowerCase(java.util.Locale.ROOT),
+                    legacySalt,
+                    legacyHash,
+                    legacyIterations);
+            AuthService.SessionHandle legacyLogin = auth.login(
+                    legacyUsername, legacyPassword);
+            expect(legacyAccount.id(), legacyLogin.user().id(),
+                    "historical username and password remain valid for login");
+            AuthService.SessionHandle legacyRotated = auth.changePassword(
+                    legacyLogin.token(), legacyPassword, "LegacyNew#2026");
+            expect(true, auth.authenticateSession(legacyRotated.token()).isPresent(),
+                    "historical password can be used as the current password");
             expect(false, Files.exists(deletionChartFile),
                     "chart cleanup is idempotent");
             expectThrows(AuthService.InvalidCredentialsException.class,
@@ -292,6 +349,19 @@ public final class UserAuthTest {
     @SuppressWarnings("unchecked")
     private static Map<String, Object> object(Object value) {
         return (Map<String, Object>) value;
+    }
+
+    private static byte[] deriveLegacyPassword(
+            String password, byte[] salt, int iterations) throws Exception {
+        PBEKeySpec specification = new PBEKeySpec(
+                password.toCharArray(), salt, iterations, 256);
+        try {
+            return SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256")
+                    .generateSecret(specification)
+                    .getEncoded();
+        } finally {
+            specification.clearPassword();
+        }
     }
 
     private static void expect(Object expected, Object actual, String label) {

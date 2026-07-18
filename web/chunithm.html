@@ -33,7 +33,7 @@
         <span id="sync-status-text">本地计算</span>
       </span>
       <div class="account-control">
-        <button class="button button-account" id="account-button" type="button" aria-haspopup="dialog">
+        <button class="button button-account" id="account-button" type="button">
           <span class="account-avatar" aria-hidden="true">游</span>
           <span id="account-label">登录 / 注册</span>
         </button>
@@ -294,61 +294,6 @@
     </form>
   </dialog>
 
-  <dialog class="modal auth-modal" id="auth-dialog" aria-labelledby="auth-dialog-title">
-    <form id="auth-form" novalidate>
-      <header class="modal-header">
-        <div>
-          <span class="section-kicker">云端用户空间</span>
-          <h2 id="auth-dialog-title">登录</h2>
-          <p class="auth-intro">必须登录后使用；账号与舞萌共用，中二成绩使用独立数据空间。</p>
-        </div>
-        <button class="icon-button" id="close-auth-dialog-button" type="button" aria-label="关闭登录窗口" title="关闭" hidden>×</button>
-      </header>
-      <div class="modal-body">
-        <div class="auth-mode-switch" role="tablist" aria-label="登录或注册">
-          <button type="button" role="tab" aria-selected="true" class="is-active" data-auth-mode="login">登录</button>
-          <button type="button" role="tab" aria-selected="false" data-auth-mode="register">注册</button>
-        </div>
-        <div class="auth-fields">
-          <label class="field">
-            <span id="auth-identity-label">用户名或邮箱</span>
-            <input id="auth-username" name="username" type="text" maxlength="128"
-              autocomplete="username" autocapitalize="none" spellcheck="false" required>
-          </label>
-          <label class="field">
-            <span>密码</span>
-            <input id="auth-password" name="password" type="password" minlength="8" maxlength="128"
-              autocomplete="current-password" required>
-          </label>
-          <div class="auth-register-fields" id="auth-register-fields" hidden>
-            <label class="field">
-              <span>验证邮箱</span>
-              <input id="auth-email" name="email" type="email" maxlength="254"
-                autocomplete="email" autocapitalize="none" spellcheck="false">
-            </label>
-            <label class="field">
-              <span>邮箱验证码</span>
-              <span class="verification-input-row">
-                <input id="auth-verification-code" name="verificationCode" type="text"
-                  inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6"
-                  autocomplete="one-time-code">
-                <button class="button button-secondary" id="send-auth-code-button" type="button">发送验证码</button>
-              </span>
-            </label>
-            <p class="verification-status" id="auth-code-status" role="status" aria-live="polite">验证码为 6 位数字，10 分钟内有效。</p>
-          </div>
-        </div>
-        <p class="auth-note" id="auth-note">本站不提供游客模式。旧版浏览器本地成绩可在登录后选择迁移。</p>
-        <p class="form-error" id="auth-error" role="alert" hidden></p>
-      </div>
-      <footer class="modal-footer">
-        <button class="button button-secondary" id="cancel-auth-button" type="button" hidden>取消</button>
-        <button class="button button-primary" id="auth-submit-button" type="submit">登录</button>
-      </footer>
-    </form>
-  </dialog>
-
-
   <dialog class="modal score-detail-modal lxns-detail-modal" id="score-detail-dialog"
     aria-labelledby="score-detail-title"
     aria-describedby="score-detail-description">
@@ -421,7 +366,6 @@
 
   <script src="judgment-details.js" defer></script>
   <script src="user-theme.js" defer></script>
-  <script src="auth-email.js" defer></script>
   <script src="chunithm.js" defer></script>
 </body>
 </html>

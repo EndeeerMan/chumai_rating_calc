@@ -2,8 +2,6 @@
   "use strict";
 
   const AUTH_STATUS_ENDPOINT = "/api/auth/status";
-  const AUTH_LOGIN_ENDPOINT = "/api/auth/login";
-  const AUTH_REGISTER_ENDPOINT = "/api/auth/register";
   const SYNC_SESSIONS_ENDPOINT = "/api/sync/sessions";
   const SYNC_IMPORT_ENDPOINT = "/api/sync/import";
   const HISTORY_ENDPOINT = "/api/history";
@@ -59,7 +57,6 @@
     authenticated: false,
     authReady: false,
     authBusy: false,
-    authMode: "login",
     proxyHost: "",
     proxyHostValid: false,
     helperPath: "",
@@ -82,14 +79,11 @@
   };
 
   const elements = {};
-  let authEmailController = null;
 
   document.addEventListener("DOMContentLoaded", initialize, { once: true });
 
   function initialize() {
     cacheElements();
-    initializeEmailVerification();
-    bindAuthActions();
     configureProxyDetails();
     bindTabs();
     bindCopyButtons();
@@ -116,25 +110,10 @@
       "json-paste-input", "add-pasted-json-button", "clear-upload-button",
       "upload-queue-list", "upload-queue-summary", "empty-upload-queue",
       "start-upload-button", "upload-status", "upload-result", "upload-history-count", "upload-result-link",
-      "global-message", "auth-dialog", "auth-form", "auth-dialog-title", "auth-username",
-      "auth-identity-label", "auth-password", "auth-register-fields", "auth-email",
-      "auth-verification-code", "send-auth-code-button", "auth-code-status",
-      "auth-note", "auth-error", "auth-submit-button"
+      "global-message"
     ];
     ids.forEach((id) => {
       elements[toCamelCase(id)] = document.getElementById(id);
-    });
-  }
-
-  function initializeEmailVerification() {
-    if (!window.B50EmailVerification) throw new Error("邮箱验证模块加载失败");
-    authEmailController = window.B50EmailVerification.createRegistrationController({
-      container: elements.authRegisterFields,
-      emailInput: elements.authEmail,
-      codeInput: elements.authVerificationCode,
-      sendButton: elements.sendAuthCodeButton,
-      status: elements.authCodeStatus,
-      showError: setAuthError
     });
   }
 
@@ -371,63 +350,30 @@
     if (state.authBusy) return;
     state.authBusy = true;
     state.authReady = false;
-    elements.authSubmitButton.disabled = true;
-    elements.authSubmitButton.textContent = "正在检查…";
     renderAuthState("checking");
     updateActionAvailability();
     try {
       const payload = await requestJson(AUTH_STATUS_ENDPOINT, { method: "GET" });
       const authenticated = payload?.authenticated === true && payload?.user;
       if (authenticated && redirectIfEmailRequired(payload)) return;
+      if (!authenticated) {
+        requireAuthentication();
+        return;
+      }
       finishAuthStartup();
-      state.authenticated = Boolean(authenticated);
+      state.authenticated = true;
       state.authReady = true;
-      renderAuthState(state.authenticated ? "signed-in" : "signed-out", payload?.user || null);
-      if (state.authenticated) releaseAuthenticationGate();
-      else requireAuthentication();
+      renderAuthState("signed-in", payload.user);
+      releaseAuthenticationGate();
     } catch (error) {
-      finishAuthStartup();
       state.authenticated = false;
-      state.authReady = true;
-      renderAuthState("error", null, friendlyError(error));
-      requireAuthentication("账户服务暂不可用，请确认 JDK 后端已经启动。");
+      state.authReady = false;
+      console.info("账户服务暂不可用，转到登录页面", error);
+      requireAuthentication();
     } finally {
       state.authBusy = false;
-      elements.authSubmitButton.disabled = false;
-      elements.authSubmitButton.textContent = state.authMode === "register"
-        ? "注册并登录"
-        : "登录";
       updateActionAvailability();
     }
-  }
-
-  function bindAuthActions() {
-    elements.authForm.addEventListener("submit", handleAuthSubmit);
-    elements.authDialog.addEventListener("cancel", (event) => {
-      if (!state.authenticated || state.authBusy) event.preventDefault();
-    });
-    elements.authDialog.querySelectorAll("[data-auth-mode]").forEach((button) => {
-      button.addEventListener("click", () => setAuthMode(button.dataset.authMode));
-    });
-  }
-
-  function setAuthMode(mode) {
-    state.authMode = mode === "register" ? "register" : "login";
-    const registering = state.authMode === "register";
-    elements.authDialogTitle.textContent = registering ? "注册新用户" : "登录";
-    elements.authSubmitButton.textContent = registering ? "注册并登录" : "登录";
-    elements.authIdentityLabel.textContent = registering ? "用户名" : "用户名或邮箱";
-    elements.authPassword.autocomplete = registering ? "new-password" : "current-password";
-    authEmailController.setActive(registering);
-    elements.authNote.textContent = registering
-      ? "密码至少 8 位，并需填写邮箱收到的 6 位验证码。注册成功后会直接进入玩家空间。"
-      : "本站不提供游客模式。登录后才能同步或导入成绩。";
-    elements.authDialog.querySelectorAll("[data-auth-mode]").forEach((button) => {
-      const active = button.dataset.authMode === state.authMode;
-      button.classList.toggle("is-active", active);
-      button.setAttribute("aria-selected", String(active));
-    });
-    setAuthError();
   }
 
   function redirectIfEmailRequired(payload) {
@@ -442,96 +388,13 @@
     elements.authStartupMask.hidden = true;
   }
 
-  function setAuthError(message = "") {
-    elements.authError.textContent = message;
-    elements.authError.hidden = !message;
-  }
-
-  function requireAuthentication(message = "") {
-    document.body.classList.add("auth-required");
-    elements.authDialog.dataset.required = "true";
-    if (!elements.authDialog.open) {
-      elements.authForm.reset();
-      setAuthMode(state.authMode);
-      elements.authDialog.showModal();
-    }
-    if (message) setAuthError(message);
-    window.requestAnimationFrame(() => elements.authUsername.focus());
+  function requireAuthentication() {
+    document.body.classList.add("auth-checking");
+    window.location.replace("/login.html");
   }
 
   function releaseAuthenticationGate() {
     document.body.classList.remove("auth-required");
-    delete elements.authDialog.dataset.required;
-    if (elements.authDialog.open) elements.authDialog.close();
-  }
-
-  async function handleAuthSubmit(event) {
-    event.preventDefault();
-    setAuthError();
-    if (state.authBusy || !elements.authForm.reportValidity()) return;
-    const username = elements.authUsername.value.trim();
-    const password = elements.authPassword.value;
-    const registering = state.authMode === "register";
-    if (!username || Array.from(username).length > 128) {
-      setAuthError("请输入用户名或邮箱。");
-      return;
-    }
-    if (registering && !/^[\p{L}\p{N}][\p{L}\p{N}_.-]{2,31}$/u.test(username)) {
-      setAuthError("用户名须为 3–32 位字母或数字，可包含下划线、连字符和句点。");
-      return;
-    }
-    let registrationFields = {};
-    if (registering) {
-      try {
-        registrationFields = authEmailController.registrationFields();
-      } catch (error) {
-        setAuthError(error instanceof Error ? error.message : "请填写邮箱验证码。");
-        return;
-      }
-    }
-    const passwordLength = Array.from(password).length;
-    if (passwordLength < 8 || passwordLength > 128) {
-      setAuthError("密码须为 8–128 个字符。");
-      return;
-    }
-
-    state.authBusy = true;
-    elements.authSubmitButton.disabled = true;
-    elements.authSubmitButton.textContent = state.authMode === "register"
-      ? "正在注册…"
-      : "正在登录…";
-    try {
-      const endpoint = state.authMode === "register"
-        ? AUTH_REGISTER_ENDPOINT
-        : AUTH_LOGIN_ENDPOINT;
-      const payload = await requestJson(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json;charset=UTF-8" },
-        body: JSON.stringify({ username, password, ...registrationFields })
-      });
-      if (payload?.authenticated !== true || !payload?.user) {
-        throw new Error(state.authMode === "register" ? "注册失败。" : "登录失败。");
-      }
-      if (redirectIfEmailRequired(payload)) return;
-      state.authenticated = true;
-      state.authReady = true;
-      renderAuthState("signed-in", payload.user);
-      releaseAuthenticationGate();
-      updateActionAvailability();
-      showGlobalMessage(`已登录：${String(payload.user.displayName || payload.user.username || username)}`, "success");
-    } catch (error) {
-      state.authenticated = false;
-      state.authReady = true;
-      setAuthError(friendlyError(error));
-      requireAuthentication();
-    } finally {
-      state.authBusy = false;
-      elements.authSubmitButton.disabled = false;
-      const registering = state.authMode === "register";
-      elements.authSubmitButton.textContent = registering ? "注册并登录" : "登录";
-      elements.authPassword.autocomplete = registering ? "new-password" : "current-password";
-      updateActionAvailability();
-    }
   }
 
   function renderAuthState(mode, user, detail) {

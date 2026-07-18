@@ -57,7 +57,7 @@
         <p id="auth-message">同步数据前需要登录，以便将成绩保存到正确的玩家账号。</p>
       </div>
       <div class="auth-actions">
-        <a class="button button-primary" id="login-link" href="/" hidden>前往登录</a>
+        <a class="button button-primary" id="login-link" href="/login.html" hidden>前往登录</a>
         <button class="button button-secondary" id="retry-auth-button" type="button" hidden>重新检查</button>
       </div>
     </section>
@@ -320,61 +320,8 @@
     <p>授权参数与 Cookie 不应写入日志或长期保存。短时会话到期后，请关闭本地辅助代理。</p>
   </footer>
 
-  <dialog class="auth-modal" id="auth-dialog" aria-labelledby="auth-dialog-title">
-    <form id="auth-form" novalidate>
-      <header class="auth-modal-header">
-        <div>
-          <span class="auth-kicker">云端用户空间</span>
-          <h2 id="auth-dialog-title">登录</h2>
-          <p>必须登录后使用；同步结果只会写入当前玩家的独立数据空间。</p>
-        </div>
-      </header>
-      <div class="auth-modal-body">
-        <div class="auth-mode-switch" role="tablist" aria-label="登录或注册">
-          <button type="button" role="tab" aria-selected="true" class="is-active" data-auth-mode="login">登录</button>
-          <button type="button" role="tab" aria-selected="false" data-auth-mode="register">注册</button>
-        </div>
-        <div class="auth-fields">
-          <label>
-            <span id="auth-identity-label">用户名或邮箱</span>
-            <input id="auth-username" name="username" type="text" maxlength="128"
-              autocomplete="username" required autofocus>
-          </label>
-          <label>
-            <span>密码</span>
-            <input id="auth-password" name="password" type="password" minlength="8" maxlength="128"
-              autocomplete="current-password" required>
-          </label>
-          <div class="auth-register-fields" id="auth-register-fields" hidden>
-            <label>
-              <span>验证邮箱</span>
-              <input id="auth-email" name="email" type="email" maxlength="254"
-                autocomplete="email" autocapitalize="none" spellcheck="false">
-            </label>
-            <label>
-              <span>邮箱验证码</span>
-              <span class="verification-input-row">
-                <input id="auth-verification-code" name="verificationCode" type="text"
-                  inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6"
-                  autocomplete="one-time-code">
-                <button class="button button-secondary" id="send-auth-code-button" type="button">发送验证码</button>
-              </span>
-            </label>
-            <p class="verification-status" id="auth-code-status" role="status" aria-live="polite">验证码为 6 位数字，10 分钟内有效。</p>
-          </div>
-        </div>
-        <p class="auth-note" id="auth-note">本站不提供游客模式。登录后才能同步或导入成绩。</p>
-        <p class="auth-error" id="auth-error" role="alert" hidden></p>
-      </div>
-      <footer class="auth-modal-footer">
-        <button class="button button-primary" id="auth-submit-button" type="submit">登录</button>
-      </footer>
-    </form>
-  </dialog>
-
   <noscript><p class="noscript-warning">此页面需要 JavaScript 才能创建同步会话和导入 JSON。</p></noscript>
   <script src="user-theme.js" defer></script>
-  <script src="auth-email.js" defer></script>
   <script src="sync.js" defer></script>
 </body>
 </html>

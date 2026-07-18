@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#f5f7f8">
+  <meta name="description" content="登录 ChuMai Rating Calc 玩家账号">
+  <title>登录 · ChuMai Rating Calc</title>
+  <link rel="icon" href="/assets/maimai-mark.png" type="image/png">
+  <link rel="stylesheet" href="login.css">
+</head>
+<body class="login-page auth-loading">
+  <main class="auth-layout">
+    <section class="auth-content" aria-labelledby="auth-page-title">
+      <header class="auth-heading">
+        <span class="auth-product">CHUMAI RATING CALC</span>
+        <h1 id="auth-page-title">欢迎回来</h1>
+        <p id="auth-page-subtitle">登录玩家账号后进入舞萌 DX 分数构成。</p>
+      </header>
+
+      <p class="auth-notice" id="auth-notice" role="status" aria-live="polite" hidden></p>
+      <p class="auth-error" id="auth-error" role="alert" hidden></p>
+
+      <form class="auth-form" id="login-form" novalidate>
+        <label class="auth-field" for="login-identity">
+          <span>用户名或邮箱</span>
+          <input id="login-identity" name="username" type="text" maxlength="254"
+            autocomplete="username" autocapitalize="none" spellcheck="false"
+            placeholder="请输入用户名或邮箱" required>
+        </label>
+
+        <label class="auth-field" for="login-password">
+          <span class="field-label-row">
+            <span>密码</span>
+            <a class="text-action" href="/forgot-password.html">忘记密码？</a>
+          </span>
+          <span class="password-input">
+            <input id="login-password" name="password" type="password" minlength="6" maxlength="128"
+              autocomplete="current-password" placeholder="请输入密码" required>
+            <button class="password-toggle" type="button" data-password-target="login-password"
+              aria-label="显示密码">显示</button>
+          </span>
+        </label>
+
+        <button class="primary-action" id="login-submit" type="submit">登录</button>
+        <p class="mode-prompt">还没有账号？
+          <a class="text-action" href="/register.html">注册</a>
+        </p>
+      </form>
+
+      <form class="auth-form" id="register-form" novalidate hidden>
+        <label class="auth-field" for="register-username">
+          <span>用户名</span>
+          <input id="register-username" name="username" type="text" minlength="3" maxlength="18"
+            pattern="[A-Za-z0-9_]{3,18}" autocomplete="username" autocapitalize="none"
+            spellcheck="false" placeholder="3–18 位字母、数字或下划线" required>
+        </label>
+
+        <label class="auth-field" for="register-email">
+          <span>邮箱</span>
+          <input id="register-email" name="email" type="email" maxlength="254"
+            autocomplete="email" autocapitalize="none" spellcheck="false"
+            placeholder="请输入用于验证和找回密码的邮箱" required>
+        </label>
+
+        <label class="auth-field" for="register-code">
+          <span>邮箱验证码</span>
+          <span class="verification-row">
+            <input id="register-code" name="verificationCode" type="text" inputmode="numeric"
+              pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code"
+              placeholder="6 位数字" required>
+            <button class="secondary-action" id="send-register-code" type="button">发送验证码</button>
+          </span>
+        </label>
+        <p class="verification-status" id="register-code-status" role="status" aria-live="polite">
+          验证码 10 分钟内有效，重新发送需等待 2 分钟。
+        </p>
+
+        <label class="auth-field" for="register-password">
+          <span>密码</span>
+          <span class="password-input">
+            <input id="register-password" name="password" type="password" minlength="6" maxlength="32"
+              pattern="[!-~]{6,32}" autocomplete="new-password" placeholder="6–32 位 ASCII 字符（! 到 ~）" required>
+            <button class="password-toggle" type="button" data-password-target="register-password"
+              aria-label="显示密码">显示</button>
+          </span>
+        </label>
+
+        <label class="auth-field" for="register-password-confirm">
+          <span>确认密码</span>
+          <span class="password-input">
+            <input id="register-password-confirm" name="passwordConfirmation" type="password"
+              minlength="6" maxlength="32" pattern="[!-~]{6,32}" autocomplete="new-password"
+              placeholder="再次输入密码" required>
+            <button class="password-toggle" type="button" data-password-target="register-password-confirm"
+              aria-label="显示确认密码">显示</button>
+          </span>
+        </label>
+
+        <button class="primary-action" id="register-submit" type="submit">注册并登录</button>
+        <p class="mode-prompt">已经有账号？
+          <a class="text-action" href="/login.html">返回登录</a>
+        </p>
+      </form>
+
+      <form class="auth-form" id="forgot-form" novalidate hidden>
+        <label class="auth-field" for="forgot-email">
+          <span>已绑定邮箱</span>
+          <input id="forgot-email" name="email" type="email" maxlength="254"
+            autocomplete="email" autocapitalize="none" spellcheck="false"
+            placeholder="请输入账号绑定的邮箱" required>
+        </label>
+
+        <label class="auth-field" for="forgot-code">
+          <span>邮箱验证码</span>
+          <span class="verification-row">
+            <input id="forgot-code" name="verificationCode" type="text" inputmode="numeric"
+              pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="one-time-code"
+              placeholder="6 位数字" required>
+            <button class="secondary-action" id="send-forgot-code" type="button">发送验证码</button>
+          </span>
+        </label>
+        <p class="verification-status" id="forgot-code-status" role="status" aria-live="polite">
+          若邮箱已绑定账号，验证码将在几分钟内送达。
+        </p>
+
+        <label class="auth-field" for="forgot-password">
+          <span>新密码</span>
+          <span class="password-input">
+            <input id="forgot-password" name="newPassword" type="password" minlength="6" maxlength="32"
+              pattern="[!-~]{6,32}" autocomplete="new-password" placeholder="6–32 位 ASCII 字符（! 到 ~）" required>
+            <button class="password-toggle" type="button" data-password-target="forgot-password"
+              aria-label="显示新密码">显示</button>
+          </span>
+        </label>
+
+        <label class="auth-field" for="forgot-password-confirm">
+          <span>确认新密码</span>
+          <span class="password-input">
+            <input id="forgot-password-confirm" name="newPasswordConfirmation" type="password"
+              minlength="6" maxlength="32" pattern="[!-~]{6,32}" autocomplete="new-password"
+              placeholder="再次输入新密码" required>
+            <button class="password-toggle" type="button" data-password-target="forgot-password-confirm"
+              aria-label="显示确认密码">显示</button>
+          </span>
+        </label>
+
+        <button class="primary-action" id="forgot-submit" type="submit">重置密码</button>
+        <p class="mode-prompt">
+          <a class="text-action" href="/login.html">返回登录</a>
+        </p>
+      </form>
+    </section>
+
+    <div class="auth-loading-state" id="auth-loading-state" role="status" aria-live="polite">
+      <span class="loading-indicator" aria-hidden="true"></span>
+      <span>正在确认登录状态</span>
+    </div>
+  </main>
+
+  <noscript><p class="noscript-message">登录页面需要启用 JavaScript。</p></noscript>
+  <script src="auth-email.js" defer></script>
+  <script src="login.js" defer></script>
+</body>
+</html>

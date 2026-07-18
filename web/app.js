@@ -4,8 +4,6 @@
   const STORAGE_KEY = "maimai-b50-workbench:v1";
   const API_ENDPOINT = "/api/b50/calculate";
   const AUTH_STATUS_ENDPOINT = "/api/auth/status";
-  const AUTH_LOGIN_ENDPOINT = "/api/auth/login";
-  const AUTH_REGISTER_ENDPOINT = "/api/auth/register";
   const AUTH_LOGOUT_ENDPOINT = "/api/auth/logout";
   const USER_CHARTS_ENDPOINT = "/api/user/charts";
   const PLAY_HISTORY_ENDPOINT = "/api/history";
@@ -144,22 +142,6 @@
     formError: document.querySelector("#form-error"),
     closeDialogButton: document.querySelector("#close-dialog-button"),
     cancelDialogButton: document.querySelector("#cancel-dialog-button"),
-    authDialog: document.querySelector("#auth-dialog"),
-    authForm: document.querySelector("#auth-form"),
-    authDialogTitle: document.querySelector("#auth-dialog-title"),
-    authIdentityLabel: document.querySelector("#auth-identity-label"),
-    authUsername: document.querySelector("#auth-username"),
-    authPassword: document.querySelector("#auth-password"),
-    authRegisterFields: document.querySelector("#auth-register-fields"),
-    authEmail: document.querySelector("#auth-email"),
-    authVerificationCode: document.querySelector("#auth-verification-code"),
-    sendAuthCodeButton: document.querySelector("#send-auth-code-button"),
-    authCodeStatus: document.querySelector("#auth-code-status"),
-    authNote: document.querySelector("#auth-note"),
-    authError: document.querySelector("#auth-error"),
-    authSubmitButton: document.querySelector("#auth-submit-button"),
-    closeAuthDialogButton: document.querySelector("#close-auth-dialog-button"),
-    cancelAuthButton: document.querySelector("#cancel-auth-button"),
     deleteDialog: document.querySelector("#delete-dialog"),
     deleteChartName: document.querySelector("#delete-chart-name"),
     cancelDeleteButton: document.querySelector("#cancel-delete-button"),
@@ -190,7 +172,6 @@
     userRevision: null,
     authReady: false,
     authBusy: false,
-    authMode: "login",
     sessionSequence: 0,
     chartSaveBusy: false,
     catalog: [],
@@ -213,18 +194,6 @@
       pageSize: 24
     }
   };
-
-  if (!window.B50EmailVerification) {
-    throw new Error("邮箱验证模块加载失败");
-  }
-  const authEmailController = window.B50EmailVerification.createRegistrationController({
-    container: elements.authRegisterFields,
-    emailInput: elements.authEmail,
-    codeInput: elements.authVerificationCode,
-    sendButton: elements.sendAuthCodeButton,
-    status: elements.authCodeStatus,
-    showError: setAuthError
-  });
 
   function createKey() {
     if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
@@ -2466,11 +2435,6 @@
     };
   }
 
-  function setAuthError(message = "") {
-    elements.authError.textContent = message;
-    elements.authError.hidden = !message;
-  }
-
   function renderAccount() {
     const loggedIn = state.authenticated && state.user;
     const profileReady = document.documentElement.dataset.profileReady === "true";
@@ -2489,11 +2453,7 @@
     elements.accountButton.setAttribute("aria-label", loggedIn
       ? `当前用户 ${state.user.displayName}，打开个人资料`
       : "登录或注册");
-    if (loggedIn) {
-      elements.accountButton.removeAttribute("aria-haspopup");
-    } else {
-      elements.accountButton.setAttribute("aria-haspopup", "dialog");
-    }
+    elements.accountButton.removeAttribute("aria-haspopup");
     elements.logoutButton.hidden = !loggedIn;
     elements.logoutButton.disabled = state.authBusy || state.chartSaveBusy;
     elements.accountButton.disabled = state.authBusy || state.chartSaveBusy || !state.authReady;
@@ -2504,25 +2464,6 @@
       void window.B50ProfileTheme?.refresh({ force: true });
     }
     updateMutationControls();
-  }
-
-  function setAuthMode(mode) {
-    state.authMode = mode === "register" ? "register" : "login";
-    const registering = state.authMode === "register";
-    elements.authDialogTitle.textContent = registering ? "注册新用户" : "登录";
-    elements.authSubmitButton.textContent = registering ? "注册并登录" : "登录";
-    elements.authIdentityLabel.textContent = registering ? "用户名" : "用户名或邮箱";
-    elements.authPassword.autocomplete = registering ? "new-password" : "current-password";
-    authEmailController.setActive(registering);
-    elements.authNote.textContent = registering
-      ? "密码至少 8 位，并需填写邮箱收到的 6 位验证码。注册成功后可迁移旧版本地成绩。"
-      : "本站不提供游客模式。登录后才能查看和修改个人成绩。";
-    elements.authDialog.querySelectorAll("[data-auth-mode]").forEach((button) => {
-      const active = button.dataset.authMode === state.authMode;
-      button.classList.toggle("is-active", active);
-      button.setAttribute("aria-selected", String(active));
-    });
-    setAuthError();
   }
 
   function redirectIfEmailRequired(payload) {
@@ -2537,38 +2478,17 @@
     elements.authStartupMask.hidden = true;
   }
 
-  function openAuthDialog() {
-    if (state.authenticated && state.user) {
-      window.location.assign("/profile.html");
-      return;
-    }
-    setAuthError();
-    elements.authForm.reset();
-    setAuthMode(state.authenticated ? "login" : state.authMode);
-    showModal(elements.authDialog);
-    window.requestAnimationFrame(() => elements.authUsername.focus());
+  function openAccountPage() {
+    window.location.assign(state.authenticated ? "/profile.html" : "/login.html");
   }
 
-  function requireAuthentication(message = "") {
-    document.body.classList.add("auth-required");
-    elements.authDialog.dataset.required = "true";
-    if (!elements.authDialog.open) {
-      elements.authForm.reset();
-      setAuthMode(state.authMode);
-      showModal(elements.authDialog);
-    }
-    if (message) setAuthError(message);
-    window.requestAnimationFrame(() => elements.authUsername.focus());
+  function requireAuthentication() {
+    document.body.classList.add("auth-checking");
+    window.location.replace("/login.html");
   }
 
   function releaseAuthenticationGate() {
     document.body.classList.remove("auth-required");
-    delete elements.authDialog.dataset.required;
-    closeModal(elements.authDialog);
-  }
-
-  function closeAuthDialog() {
-    if (!state.authBusy && state.authenticated) closeModal(elements.authDialog);
   }
 
   async function loadUserCharts(sessionToken, offerMigration = true) {
@@ -2681,105 +2601,20 @@
       if (response.ok && payload.authenticated === true && user && redirectIfEmailRequired(payload)) {
         return;
       }
-      finishAuthStartup();
       if (response.ok && payload.authenticated === true && user) {
+        finishAuthStartup();
         state.authenticated = true;
         state.user = user;
         state.userRevision = null;
         releaseAuthenticationGate();
         await loadUserCharts(sessionToken, true);
       } else {
-        state.authenticated = false;
-        state.user = null;
-        state.userRevision = null;
-        state.authReady = true;
-        state.charts = [];
-        renderAccount();
-        scheduleApiCalculation();
         requireAuthentication();
       }
     } catch (error) {
       if (sessionToken !== state.sessionSequence) return;
-      finishAuthStartup();
-      state.authenticated = false;
-      state.user = null;
-      state.userRevision = null;
-      state.authReady = true;
-      state.charts = [];
-      renderAccount();
-      scheduleApiCalculation();
-      requireAuthentication("账户服务暂不可用，请确认 JDK 后端已经启动");
-      console.info("账户服务暂不可用，等待登录", error);
-    }
-  }
-
-  async function handleAuthSubmit(event) {
-    event.preventDefault();
-    setAuthError();
-    if (state.authBusy || !elements.authForm.reportValidity()) return;
-    const username = elements.authUsername.value.trim();
-    const password = elements.authPassword.value;
-    const registering = state.authMode === "register";
-    if (!username || Array.from(username).length > 128) {
-      setAuthError("请输入用户名或邮箱。");
-      return;
-    }
-    if (registering && !/^[\p{L}\p{N}][\p{L}\p{N}_.-]{2,31}$/u.test(username)) {
-      setAuthError("用户名须为 3–32 位字母或数字，可包含下划线、连字符和句点。");
-      return;
-    }
-    let registrationFields = {};
-    if (registering) {
-      try {
-        registrationFields = authEmailController.registrationFields();
-      } catch (error) {
-        setAuthError(error instanceof Error ? error.message : "请填写邮箱验证码。");
-        return;
-      }
-    }
-    const passwordLength = Array.from(password).length;
-    if (passwordLength < 8 || passwordLength > 128) {
-      setAuthError("密码须为 8–128 个字符。");
-      return;
-    }
-    state.authBusy = true;
-    elements.authSubmitButton.disabled = true;
-    elements.authSubmitButton.textContent = state.authMode === "register" ? "正在注册…" : "正在登录…";
-    renderAccount();
-    try {
-      const endpoint = state.authMode === "register" ? AUTH_REGISTER_ENDPOINT : AUTH_LOGIN_ENDPOINT;
-      const response = await fetch(endpoint, {
-        method: "POST",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json;charset=UTF-8"
-        },
-        body: JSON.stringify({ username, password, ...registrationFields })
-      });
-      const payload = await readJsonResponse(response);
-      const user = userFromPayload(payload);
-      if (payload.authenticated === true && user && redirectIfEmailRequired(payload)) return;
-      if (!response.ok || payload.authenticated !== true || !user) {
-        throw new Error(apiErrorMessage(payload, `${state.authMode === "register" ? "注册" : "登录"}失败（HTTP ${response.status}）`));
-      }
-      const sessionToken = ++state.sessionSequence;
-      state.authenticated = true;
-      state.user = user;
-      state.userRevision = null;
-      state.authReady = false;
-      releaseAuthenticationGate();
-      renderAccount();
-      const loaded = await loadUserCharts(sessionToken, true);
-      if (loaded && state.user) showToast(`已登录：${state.user.displayName}`);
-    } catch (error) {
-      setAuthError(error instanceof Error ? error.message : "账户操作失败，请稍后重试");
-    } finally {
-      state.authBusy = false;
-      elements.authSubmitButton.disabled = false;
-      const registering = state.authMode === "register";
-      elements.authSubmitButton.textContent = registering ? "注册并登录" : "登录";
-      elements.authPassword.autocomplete = registering ? "new-password" : "current-password";
-      renderAccount();
+      console.info("账户服务暂不可用，转到登录页面", error);
+      requireAuthentication();
     }
   }
 
@@ -2816,8 +2651,7 @@
       resetPlayHistoryOverview();
       renderAccount();
       scheduleApiCalculation();
-      requireAuthentication();
-      showToast("已退出，请重新登录后使用");
+      window.location.replace("/login.html");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "退出失败");
     } finally {
@@ -3421,22 +3255,8 @@
       }
     });
 
-    elements.accountButton.addEventListener("click", openAuthDialog);
+    elements.accountButton.addEventListener("click", openAccountPage);
     elements.logoutButton.addEventListener("click", logout);
-    elements.authForm.addEventListener("submit", handleAuthSubmit);
-    elements.closeAuthDialogButton.addEventListener("click", closeAuthDialog);
-    elements.cancelAuthButton.addEventListener("click", closeAuthDialog);
-    elements.authDialog.addEventListener("click", (event) => {
-      const modeButton = event.target.closest("[data-auth-mode]");
-      if (modeButton) {
-        setAuthMode(modeButton.dataset.authMode);
-      } else if (event.target === elements.authDialog) {
-        closeAuthDialog();
-      }
-    });
-    elements.authDialog.addEventListener("cancel", (event) => {
-      if (state.authBusy || !state.authenticated) event.preventDefault();
-    });
 
 
     elements.csvInput.addEventListener("change", () => {

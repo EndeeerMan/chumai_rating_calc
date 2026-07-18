@@ -25,15 +25,20 @@
     return fallback;
   }
 
-  function createRegistrationController(options) {
+  function createController(options) {
     const container = options?.container;
     const emailInput = options?.emailInput;
     const codeInput = options?.codeInput;
     const sendButton = options?.sendButton;
     const status = options?.status;
+    const purpose = String(options?.purpose || "").trim();
+    const flowLabel = String(options?.flowLabel || "邮箱验证").trim();
+    const successMessage = String(
+      options?.successMessage || "验证码已发送，10 分钟内有效。"
+    );
     const showError = typeof options?.showError === "function" ? options.showError : () => {};
-    if (!container || !emailInput || !codeInput || !sendButton || !status) {
-      throw new Error("注册邮箱验证控件不完整。");
+    if (!container || !emailInput || !codeInput || !sendButton || !status || !purpose) {
+      throw new Error("邮箱验证控件不完整。");
     }
 
     let resendUntil = 0;
@@ -68,6 +73,13 @@
       renderCountdown();
     }
 
+    function resumeCountdown() {
+      if (Date.now() < resendUntil && countdownTimer === null) {
+        countdownTimer = window.setInterval(renderCountdown, 1000);
+      }
+      renderCountdown();
+    }
+
     async function sendCode() {
       if (sending || Date.now() < resendUntil) return;
       if (!emailInput.reportValidity()) return;
@@ -87,7 +99,7 @@
           },
           credentials: "same-origin",
           cache: "no-store",
-          body: JSON.stringify({ email, purpose: "register" })
+          body: JSON.stringify({ email, purpose })
         });
         const payload = await readPayload(response);
         if (!response.ok) {
@@ -99,12 +111,12 @@
         }
         const nextFlowId = String(payload?.verificationFlowId || "").trim();
         if (!FLOW_ID_PATTERN.test(nextFlowId)) {
-          throw new Error("服务器没有返回有效的注册验证流程，请重新发送。");
+          throw new Error(`服务器没有返回有效的${flowLabel}流程，请重新发送。`);
         }
         verificationFlowId = nextFlowId;
         flowEmail = email;
         beginCooldown(RESEND_SECONDS);
-        status.textContent = "验证码已发送，10 分钟内有效。";
+        status.textContent = successMessage;
         codeInput.focus();
       } catch (error) {
         status.textContent = "";
@@ -125,7 +137,7 @@
       renderCountdown();
     }
 
-    function registrationFields() {
+    function verificationFields() {
       const email = normalizedEmail();
       const verificationCode = codeInput.value.trim();
       if (!emailInput.checkValidity()) {
@@ -151,16 +163,46 @@
       }
     });
     window.addEventListener("pagehide", () => {
-      if (countdownTimer !== null) window.clearInterval(countdownTimer);
-    }, { once: true });
+      if (countdownTimer !== null) {
+        window.clearInterval(countdownTimer);
+        countdownTimer = null;
+      }
+    });
+    window.addEventListener("pageshow", resumeCountdown);
     setActive(false);
 
-    return Object.freeze({ setActive, registrationFields });
+    return Object.freeze({ setActive, verificationFields });
+  }
+
+  function createRegistrationController(options) {
+    const controller = createController({
+      ...options,
+      purpose: "register",
+      flowLabel: "注册验证"
+    });
+    return Object.freeze({
+      setActive: controller.setActive,
+      registrationFields: controller.verificationFields
+    });
+  }
+
+  function createPasswordResetController(options) {
+    const controller = createController({
+      ...options,
+      purpose: "reset-password",
+      flowLabel: "密码找回",
+      successMessage: "如果该邮箱已绑定账号，验证码将在几分钟内送达。"
+    });
+    return Object.freeze({
+      setActive: controller.setActive,
+      resetFields: controller.verificationFields
+    });
   }
 
   window.B50EmailVerification = Object.freeze({
     CODE_ENDPOINT,
     RESEND_SECONDS,
-    createRegistrationController
+    createRegistrationController,
+    createPasswordResetController
   });
 })();

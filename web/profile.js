@@ -13,6 +13,7 @@
   const AVATAR_MAX_BYTES = 5 * 1024 * 1024;
   const BACKGROUND_MAX_BYTES = 12 * 1024 * 1024;
   const EMAIL_CODE_RESEND_SECONDS = 120;
+  const NEW_PASSWORD_PATTERN = /^[!-~]{6,32}$/u;
   const ACCEPTED_IMAGE_TYPES = new Set(["image/png", "image/jpeg"]);
   const DEFAULT_BACKGROUNDS = Object.freeze({
     maimai: Object.freeze({
@@ -177,7 +178,7 @@
     );
     if (response.status === 401 && !credentialOperation) {
       window.B50ProfileTheme?.clear();
-      window.location.replace("/");
+      window.location.replace("/login.html");
       throw new DOMException("登录会话已失效", "AbortError");
     }
     if (!response.ok) {
@@ -280,6 +281,13 @@
     updateEmailCodeButton();
   }
 
+  function resumeEmailCodeCooldown() {
+    if (Date.now() < emailCodeResendUntil && emailCodeTimer === null) {
+      emailCodeTimer = window.setInterval(updateEmailCodeButton, 1000);
+    }
+    updateEmailCodeButton();
+  }
+
   function setBusy(value) {
     busy = value;
     document.querySelectorAll("button, input, label.button").forEach((control) => {
@@ -357,7 +365,7 @@
   async function loadProfile() {
     const auth = await requestJson(AUTH_STATUS_ENDPOINT, { method: "GET" });
     if (auth?.authenticated !== true || !auth?.user) {
-      window.location.replace("/");
+      window.location.replace("/login.html");
       return;
     }
     const authProfile = normalizeProfile(auth.user);
@@ -543,8 +551,8 @@
       elements.confirmPassword.focus();
       return;
     }
-    if (Array.from(newPassword).length < 8 || Array.from(newPassword).length > 128) {
-      showMessage("新密码须为 8–128 个字符。", true);
+    if (!NEW_PASSWORD_PATTERN.test(newPassword)) {
+      showMessage("新密码须为 6–32 位，且只能使用 ASCII 十进制 33–126（! 到 ~）。", true);
       return;
     }
     setBusy(true);
@@ -569,7 +577,7 @@
     try {
       await requestJson(LOGOUT_ENDPOINT, { method: "POST" });
       window.B50ProfileTheme?.clear();
-      window.location.replace("/");
+      window.location.replace("/login.html");
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "退出失败。", true);
       setBusy(false);
@@ -594,7 +602,7 @@
         body: JSON.stringify({ currentPassword })
       });
       window.B50ProfileTheme?.clear();
-      window.location.replace("/");
+      window.location.replace("/login.html");
     } catch (error) {
       showMessage(error instanceof Error ? error.message : "账号注销失败。", true);
       setBusy(false);
@@ -604,8 +612,12 @@
   window.addEventListener("pagehide", () => {
     previewUrls.forEach((url) => URL.revokeObjectURL(url));
     previewUrls.clear();
-    if (emailCodeTimer !== null) window.clearInterval(emailCodeTimer);
+    if (emailCodeTimer !== null) {
+      window.clearInterval(emailCodeTimer);
+      emailCodeTimer = null;
+    }
   });
+  window.addEventListener("pageshow", resumeEmailCodeCooldown);
 
   void loadProfile().catch((error) => {
     if (error instanceof DOMException && error.name === "AbortError") return;

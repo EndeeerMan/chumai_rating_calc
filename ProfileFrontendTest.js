@@ -14,6 +14,9 @@ const profileJs = readWeb("profile.js");
 const themeCss = readWeb("theme.css");
 const userThemeJs = readWeb("user-theme.js");
 const authEmailJs = readWeb("auth-email.js");
+const loginHtml = readWeb("login.html");
+const loginCss = readWeb("login.css");
+const loginJs = readWeb("login.js");
 const mainCss = readWeb("styles.css");
 const syncCss = readWeb("sync.css");
 const pages = new Map([
@@ -154,13 +157,17 @@ test("邮箱验证码为六位、十分钟有效且重发冷却 120 秒", () => 
   assert.match(authEmailJs, /const RESEND_SECONDS = 120;/);
   assert.match(authEmailJs, /const CODE_PATTERN = \/\^\\d\{6\}\$\/u;/);
   assert.match(authEmailJs, /const FLOW_ID_PATTERN = \/\^\[0-9a-f\]/);
-  assert.match(authEmailJs, /body:\s*JSON\.stringify\(\{ email, purpose: "register" \}\)/);
+  assert.match(authEmailJs, /body:\s*JSON\.stringify\(\{ email, purpose \}\)/);
+  assert.match(authEmailJs, /purpose:\s*"register"/);
+  assert.match(authEmailJs, /purpose:\s*"reset-password"/);
   assert.match(authEmailJs, /payload\?\.verificationFlowId/);
   assert.match(authEmailJs, /return \{ email, verificationCode, verificationFlowId \};/);
   assert.match(authEmailJs, /normalizedEmail\(\) !== flowEmail/);
   assert.match(authEmailJs, /emailInput\.disabled = !active/);
   assert.match(authEmailJs, /codeInput\.disabled = !active/);
   assert.match(authEmailJs, /验证码已发送，10 分钟内有效/);
+  assert.match(authEmailJs, /countdownTimer = null;[\s\S]*window\.addEventListener\("pageshow", resumeCountdown\)/s);
+  assert.match(profileJs, /emailCodeTimer = null;[\s\S]*window\.addEventListener\("pageshow", resumeEmailCodeCooldown\)/s);
 });
 
 test("资料页支持带双重确认的账号注销", () => {
@@ -174,40 +181,39 @@ test("资料页支持带双重确认的账号注销", () => {
     /emailState\?\.required/
   );
   assert.match(profileJs, /requestJson\(ACCOUNT_ENDPOINT, \{[\s\S]*method:\s*"DELETE"[\s\S]*body:\s*JSON\.stringify\(\{ currentPassword \}\)/s);
-  assert.match(profileJs, /window\.B50ProfileTheme\?\.clear\(\);[\s\S]*window\.location\.replace\("\/"\);/s);
+  assert.match(profileJs, /window\.B50ProfileTheme\?\.clear\(\);[\s\S]*window\.location\.replace\("\/login\.html"\);/s);
 });
 
-test("三个注册入口都要求邮箱验证码，登录允许用户名或邮箱", () => {
-  for (const name of ["index.html", "chunithm.html", "sync.html"]) {
-    const html = pages.get(name);
-    assert.match(html, /id="auth-identity-label">用户名或邮箱/);
-    assert.match(html, /id="auth-email"[^>]*type="email"/);
-    assert.match(html, /id="auth-verification-code"[^>]*pattern="\[0-9\]\{6\}"/);
-    assert.match(html, /id="send-auth-code-button"/);
-    assert.match(html, /<script src="auth-email\.js" defer><\/script>/);
+test("登录、注册和找回密码使用独立认证页面", () => {
+  for (const [name, html] of pages) {
+    assert.doesNotMatch(html, /id="auth-dialog"|id="auth-form"|id="auth-email"/, name);
   }
-  for (const [name, js] of authScripts) {
-    assert.match(js, /createRegistrationController/);
-    assert.match(js, /authEmailController\.setActive\(registering\)/);
-    assert.match(js, /authEmailController\.registrationFields\(\)/);
-    assert.match(js, /JSON\.stringify\(\{ username, password, \.\.\.registrationFields \}\)/);
-    assert.match(js, /const registering = state\.authMode === "register";/, name);
-  }
+  assert.match(loginHtml, /id="login-identity"[^>]*autocomplete="username"/s);
+  assert.match(loginHtml, /href="\/register\.html">注册<\/a>/);
+  assert.match(loginHtml, /href="\/forgot-password\.html">忘记密码？<\/a>/);
+  assert.match(loginHtml, /id="register-email"[^>]*type="email"[^>]*required/s);
+  assert.match(loginHtml, /id="register-code"[^>]*pattern="\[0-9\]\{6\}"/s);
+  assert.match(loginHtml, /id="forgot-email"[^>]*type="email"[^>]*required/s);
+  assert.match(loginJs, /createRegistrationController/);
+  assert.match(loginJs, /createPasswordResetController/);
+  assert.doesNotMatch(loginHtml, /theme\.css|user-theme\.js/);
+  assert.doesNotMatch(loginCss, /assets\/backgrounds|profile\/background/);
 });
 
-test("登录状态和登录结果遇到 emailRequired 都强制进入绑定页", () => {
+test("登录状态遇到 emailRequired 强制绑定，认证成功默认进入舞萌", () => {
   for (const [name, js] of authScripts) {
     assert.match(js, /payload\?\.emailRequired === true \|\| payload\?\.user\?\.emailRequired === true/, name);
     assert.match(js, /window\.location\.replace\("\/profile\.html\?bindEmail=1"\)/, name);
-    assert.ok(countMatches(js, /redirectIfEmailRequired\(payload\)/g) >= 2, name);
+    assert.ok(countMatches(js, /redirectIfEmailRequired\(payload\)/g) >= 1, name);
   }
+  assert.match(loginJs, /window\.location\.replace\(emailRequired \? "\/profile\.html\?bindEmail=1" : "\/"\)/);
   assert.match(profileJs, /auth\?\.emailRequired === true \|\| auth\?\.user\?\.emailRequired === true/);
 });
 
 test("资料页先验登录，头像与双背景使用原始 File 上传", () => {
   const loadProfile = sourceBetween(profileJs, "async function loadProfile()", "elements.nicknameForm.addEventListener");
   assert.ok(loadProfile.indexOf("requestJson(AUTH_STATUS_ENDPOINT") < loadProfile.indexOf("requestJson(EMAIL_ENDPOINT"));
-  assert.match(loadProfile, /window\.location\.replace\("\/"\)/);
+  assert.match(loadProfile, /window\.location\.replace\("\/login\.html"\)/);
   const upload = sourceBetween(profileJs, "async function uploadImage", "async function removeImage");
   assert.match(upload, /method:\s*"PUT"/);
   assert.match(upload, /headers:\s*\{ "Content-Type": file\.type \}/);
@@ -241,6 +247,7 @@ test("新增前端脚本语法有效", () => {
     ["profile.js", profileJs],
     ["user-theme.js", userThemeJs],
     ["auth-email.js", authEmailJs],
+    ["login.js", loginJs],
     ...authScripts
   ]) {
     assert.doesNotThrow(() => new Function(source), name);
