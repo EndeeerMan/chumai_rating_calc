@@ -9,15 +9,19 @@ from pathlib import Path
 from types import SimpleNamespace
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from urllib.parse import urlencode
+
+from httpx import Request, Response
 
 from wechat_helper.adapter import (
     AdapterError,
     CallbackParameters,
     CHUNITHM_PAGE_URLS,
+    MAIMAI_DETAIL_PAGE_URL,
     MaimaiPyAdapter,
     OAUTH_AUTHORIZE_URLS,
+    RECORD_PAGE_URL,
     SyncProgress,
     _Bindings,
     _cookie_dict,
@@ -738,6 +742,268 @@ class AdapterFetchTests(unittest.IsolatedAsyncioTestCase):
             SyncProgress("maimai", "play_details", 50, 50, 50), progress[-1]
         )
 
+    async def test_maimai_detail_fetch_is_serial_and_rotates_cookies(self) -> None:
+        class DetailHttp:
+            def __init__(self) -> None:
+                self.active = 0
+                self.peak = 0
+                self.calls: list[str] = []
+                self.seen_rotated: list[str | None] = []
+                self.seen_rotated_scopes: list[
+                    list[tuple[str, str, bool]]
+                ] = []
+
+            async def get(self, _url: str, **kwargs: object) -> object:
+                idx = str(kwargs["params"]["idx"])  # type: ignore[index]
+                cookies = kwargs["cookies"]
+                self.calls.append(idx)
+                self.seen_rotated.append(cookies.get("rotated"))  # type: ignore[union-attr]
+                self.seen_rotated_scopes.append(  # type: ignore[union-attr]
+                    [
+                        (cookie.value, cookie.domain, cookie.secure)
+                        for cookie in cookies.jar
+                        if cookie.name == "rotated"
+                    ]
+                )
+                self.active += 1
+                self.peak = max(self.peak, self.active)
+                try:
+                    await asyncio.sleep(0)
+                    return Response(
+                        200,
+                        text=idx,
+                        headers={
+                            "Set-Cookie": (
+                                f"rotated={idx}; Domain=maimai.wahlap.com; "
+                                "Path=/; Secure; HttpOnly"
+                            )
+                        },
+                        request=Request("GET", MAIMAI_DETAIL_PAGE_URL),
+                    )
+                finally:
+                    self.active -= 1
+
+        fake = FakeClient()
+        detail_http = DetailHttp()
+        fake._client = detail_http  # type: ignore[attr-defined]
+        adapter = MaimaiPyAdapter(
+            config(), bindings=bindings(), client=fake, provider=object()
+        )
+        ids = [f"stable-{ordinal}" for ordinal in range(3)]
+
+        with patch(
+            "wechat_helper.adapter.MAIMAI_DETAIL_REQUEST_INTERVAL_SECONDS", 0
+        ):
+            pages = await adapter._fetch_maimai_detail_pages(
+                {"session": "temporary", "rotated": "initial"}, ids
+            )
+
+        self.assertEqual(1, detail_http.peak)
+        self.assertEqual(ids, detail_http.calls)
+        self.assertEqual(
+            ["initial", "stable-0", "stable-1"],
+            detail_http.seen_rotated,
+        )
+        self.assertEqual(
+            [
+                [("initial", "", False)],
+                [("stable-0", ".maimai.wahlap.com", True)],
+                [("stable-1", ".maimai.wahlap.com", True)],
+            ],
+            detail_http.seen_rotated_scopes,
+        )
+        self.assertEqual(ids, pages)
+
+    async def test_maimai_detail_recovers_after_5xx_and_session_refresh(self) -> None:
+        class DetailHttp:
+            def __init__(self) -> None:
+                self.detail_calls: list[str] = []
+                self.refresh_calls = 0
+                self.failed_once = False
+
+            async def get(self, url: str, **kwargs: object) -> object:
+                if url == RECORD_PAGE_URL:
+                    self.refresh_calls += 1
+                    return SimpleNamespace(
+                        status_code=200,
+                        text="<html></html>",
+                        cookies={"session": "refreshed"},
+                    )
+                idx = str(kwargs["params"]["idx"])  # type: ignore[index]
+                self.detail_calls.append(idx)
+                if idx == "stable-10" and not self.failed_once:
+                    self.failed_once = True
+                    return SimpleNamespace(status_code=503, text="", cookies={})
+                return SimpleNamespace(status_code=200, text=idx, cookies={})
+
+        fake = FakeClient()
+        detail_http = DetailHttp()
+        fake._client = detail_http  # type: ignore[attr-defined]
+        adapter = MaimaiPyAdapter(
+            config(), bindings=bindings(), client=fake, provider=object()
+        )
+        ids = [f"stable-{ordinal}" for ordinal in range(12)]
+
+        with (
+            patch("wechat_helper.adapter.asyncio.sleep", new=AsyncMock()),
+            patch(
+                "wechat_helper.adapter.MAIMAI_DETAIL_UPSTREAM_COOLDOWNS_SECONDS",
+                (0.0,),
+            ),
+        ):
+            pages = await adapter._fetch_maimai_detail_pages(
+                {"session": "temporary"},
+                ids,
+            )
+
+        self.assertEqual(ids, pages)
+        self.assertEqual(1, detail_http.refresh_calls)
+        self.assertEqual(2, detail_http.detail_calls.count("stable-10"))
+        self.assertEqual("stable-11", detail_http.detail_calls[-1])
+
+    async def test_single_bad_detail_idx_does_not_open_global_breaker(self) -> None:
+        class DetailHttp:
+            def __init__(self) -> None:
+                self.detail_calls: list[str] = []
+                self.refresh_calls = 0
+
+            async def get(self, url: str, **kwargs: object) -> object:
+                if url == RECORD_PAGE_URL:
+                    self.refresh_calls += 1
+                    return SimpleNamespace(status_code=200, text="", cookies={})
+                idx = str(kwargs["params"]["idx"])  # type: ignore[index]
+                self.detail_calls.append(idx)
+                status = 503 if idx == "stable-10" else 200
+                return SimpleNamespace(status_code=status, text=idx, cookies={})
+
+        fake = FakeClient()
+        detail_http = DetailHttp()
+        fake._client = detail_http  # type: ignore[attr-defined]
+        adapter = MaimaiPyAdapter(
+            config(), bindings=bindings(), client=fake, provider=object()
+        )
+        ids = [f"stable-{ordinal}" for ordinal in range(13)]
+
+        with (
+            patch("wechat_helper.adapter.asyncio.sleep", new=AsyncMock()),
+            patch(
+                "wechat_helper.adapter.MAIMAI_DETAIL_UPSTREAM_COOLDOWNS_SECONDS",
+                (0.0,),
+            ),
+            self.assertLogs("maimai_wechat_helper", level="WARNING"),
+        ):
+            pages = await adapter._fetch_maimai_detail_pages(
+                {"session": "temporary"}, ids
+            )
+
+        self.assertEqual(2, detail_http.detail_calls.count("stable-10"))
+        self.assertEqual("stable-12", detail_http.detail_calls[-1])
+        self.assertIsNone(pages[10])
+        self.assertEqual("stable-11", pages[11])
+        self.assertEqual("stable-12", pages[12])
+
+    async def test_maimai_detail_persistent_5xx_opens_global_breaker(self) -> None:
+        class DetailHttp:
+            def __init__(self) -> None:
+                self.detail_calls: list[str] = []
+                self.refresh_calls = 0
+
+            async def get(self, url: str, **kwargs: object) -> object:
+                if url == RECORD_PAGE_URL:
+                    self.refresh_calls += 1
+                    return SimpleNamespace(status_code=503, text="", cookies={})
+                idx = str(kwargs["params"]["idx"])  # type: ignore[index]
+                self.detail_calls.append(idx)
+                status = 200 if len(self.detail_calls) <= 10 else 503
+                return SimpleNamespace(status_code=status, text=idx, cookies={})
+
+        fake = FakeClient()
+        detail_http = DetailHttp()
+        fake._client = detail_http  # type: ignore[attr-defined]
+        adapter = MaimaiPyAdapter(
+            config(), bindings=bindings(), client=fake, provider=object()
+        )
+        ids = [f"stable-{ordinal}" for ordinal in range(50)]
+        progress: list[SyncProgress] = []
+
+        async def on_progress(value: SyncProgress) -> None:
+            progress.append(value)
+
+        with (
+            patch("wechat_helper.adapter.asyncio.sleep", new=AsyncMock()),
+            patch(
+                "wechat_helper.adapter.MAIMAI_DETAIL_UPSTREAM_COOLDOWNS_SECONDS",
+                (0.0, 0.0),
+            ),
+            self.assertLogs("maimai_wechat_helper", level="WARNING"),
+        ):
+            pages = await adapter._fetch_maimai_detail_pages(
+                {"session": "temporary"}, ids, progress_callback=on_progress
+            )
+
+        self.assertEqual(ids[:12], detail_http.detail_calls)
+        self.assertEqual(2, detail_http.refresh_calls)
+        self.assertEqual(ids[:10], pages[:10])
+        self.assertEqual([None] * 40, pages[10:])
+        self.assertEqual(
+            SyncProgress(
+                "maimai",
+                "play_details",
+                50,
+                50,
+                10,
+                failure_reasons={"upstream-error": 40},
+            ),
+            progress[-1],
+        )
+
+    async def test_maimai_detail_soft_deadline_preserves_base_window(self) -> None:
+        class DetailHttp:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            async def get(self, _url: str, **_kwargs: object) -> object:
+                self.calls += 1
+                return SimpleNamespace(status_code=200, text="unexpected")
+
+        fake = FakeClient()
+        detail_http = DetailHttp()
+        fake._client = detail_http  # type: ignore[attr-defined]
+        adapter = MaimaiPyAdapter(
+            config(), bindings=bindings(), client=fake, provider=object()
+        )
+        progress: list[SyncProgress] = []
+
+        async def on_progress(value: SyncProgress) -> None:
+            progress.append(value)
+
+        with (
+            patch(
+                "wechat_helper.adapter.MAIMAI_DETAIL_STAGE_BUDGET_SECONDS",
+                -1.0,
+            ),
+            self.assertLogs("maimai_wechat_helper", level="WARNING"),
+        ):
+            pages = await adapter._fetch_maimai_detail_pages(
+                {"session": "temporary"},
+                ["stable-0", "stable-1", "stable-2"],
+                progress_callback=on_progress,
+            )
+
+        self.assertEqual(0, detail_http.calls)
+        self.assertEqual([None, None, None], pages)
+        self.assertEqual(
+            SyncProgress(
+                "maimai",
+                "play_details",
+                3,
+                3,
+                0,
+                failure_reasons={"unavailable": 3},
+            ),
+            progress[-1],
+        )
+
     async def test_maimai_detail_retries_an_http_200_error_template(self) -> None:
         valid_page = maimai_detail_html()
 
@@ -810,6 +1076,10 @@ class AdapterFetchTests(unittest.IsolatedAsyncioTestCase):
             patch("wechat_helper.adapter.DETAIL_REQUEST_ATTEMPTS", 1),
             patch("wechat_helper.adapter.DETAIL_REQUEST_TIMEOUT_SECONDS", 0.01),
             patch("wechat_helper.adapter.DETAIL_ROW_TIMEOUT_SECONDS", 0.05),
+            patch(
+                "wechat_helper.adapter.MAIMAI_DETAIL_REQUEST_INTERVAL_SECONDS",
+                0,
+            ),
             self.assertLogs("maimai_wechat_helper", level="WARNING") as logs,
         ):
             pages = await asyncio.wait_for(
@@ -1487,6 +1757,19 @@ class AdapterFetchTests(unittest.IsolatedAsyncioTestCase):
             },
             play["rating"],
         )
+
+    def test_maimai_play_detail_ignores_html_comments(self) -> None:
+        page = maimai_detail_html(dx_score=1234).replace(
+            "<body>",
+            "<body><!-- DX SCORE 999 / 999; MAX COMBO 999 / 999 -->",
+            1,
+        )
+
+        judgments, play = _parse_maimai_play_detail_html(page)
+
+        self.assertEqual(10, judgments["byNoteType"]["tap"]["criticalPerfect"])
+        self.assertEqual(1234, play["dxScore"]["current"])
+        self.assertEqual({"current": 79, "maximum": 80}, play["maxCombo"])
 
     def test_maimai_detail_accepts_a_labeled_td_but_rejects_asset_queries(self) -> None:
         note_rows = "".join(

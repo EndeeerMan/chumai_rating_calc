@@ -52,6 +52,9 @@ MAX_OFFICIAL_REDIRECTS = 5
 MAX_DETAIL_PAGES = 100
 DETAIL_REQUEST_ATTEMPTS = 3
 DETAIL_REQUEST_INTERVAL_SECONDS = 0.15
+MAIMAI_DETAIL_REQUEST_INTERVAL_SECONDS = 1.0
+MAIMAI_DETAIL_UPSTREAM_COOLDOWNS_SECONDS = (3.0, 10.0, 30.0)
+MAIMAI_DETAIL_STAGE_BUDGET_SECONDS = 240.0
 # Detail pages are optional enrichment.  Never let one stalled Wahlap response
 # monopolize the ten-minute synchronization deadline or discard base scores.
 # The outer per-row budget also protects custom/test transports that ignore an
@@ -76,6 +79,7 @@ DETAIL_FAILURE_REASONS = frozenset({
     "unexpected-row-failure",
     "unavailable",
 })
+MAIMAI_UPSTREAM_FAILURE_REASONS = frozenset({"rate-limited", "upstream-error"})
 MAX_JUDGMENT_COUNT = 10_000_000
 MAX_SOURCE_RECORD_ID_LENGTH = 256
 MAIMAI_DETAIL_PAGE_URL = (
@@ -1100,6 +1104,33 @@ class MaimaiPyAdapter:
         if len(source_record_ids) > MAX_DETAIL_PAGES:
             raise AdapterError("maimai returned too many play detail links")
         request = self._http_get()
+        detail_cookies = Cookies(credentials)
+        detail_loop = asyncio.get_running_loop()
+        detail_deadline = (
+            detail_loop.time() + MAIMAI_DETAIL_STAGE_BUDGET_SECONDS
+        )
+
+        def has_detail_budget(required_seconds: float) -> bool:
+            return detail_loop.time() + required_seconds < detail_deadline
+
+        def merge_response_cookies(response: Any) -> None:
+            try:
+                response_cookies = getattr(response, "cookies", None)
+                if response_cookies is None:
+                    return
+                incoming = Cookies(response_cookies)
+                incoming_names = {cookie.name for cookie in incoming.jar}
+                for name in incoming_names:
+                    # OAuth credentials arrive as a flat mapping, while an
+                    # official response cookie has a domain and path. Remove
+                    # every older scope first so httpx cannot send both the
+                    # stale and refreshed values on the next detail request.
+                    detail_cookies.delete(name)
+                detail_cookies.update(incoming)
+            except Exception:
+                # Cookie refresh is opportunistic. A malformed optional cookie
+                # must not discard an otherwise valid official detail page.
+                return
 
         async def fetch_detail(
             value: str | None,
@@ -1118,7 +1149,7 @@ class MaimaiPyAdapter:
                         response = await request(
                             MAIMAI_DETAIL_PAGE_URL,
                             params={"idx": idx},
-                            cookies=credentials,
+                            cookies=detail_cookies,
                             headers={"Referer": RECORD_PAGE_URL},
                         )
                 except TimeoutError:
@@ -1146,63 +1177,133 @@ class MaimaiPyAdapter:
                     # branch separate also avoids rewriting the useful
                     # controlled reason as a generic status failure.
                     pass
-                elif isinstance(status, int) and 200 <= status < 300:
-                    try:
-                        text = getattr(response, "text", None)
-                    except Exception:
-                        text = None
-                        failure_reason = "invalid-response"
-                    if (
-                        isinstance(text, str)
-                        and len(text) <= MAX_OFFICIAL_HTML_CHARS
-                    ):
-                        valid = validator is None
-                        if validator is not None:
-                            try:
-                                valid = validator(text, ordinal)
-                            except AdapterError:
-                                valid = False
-                                failure_reason = "invalid-detail-template"
-                            except Exception:
-                                # Parser/validator bugs affect only this one
-                                # optional detail page.  Their messages are
-                                # intentionally neither persisted nor logged.
-                                valid = False
-                                failure_reason = "detail-validation-failure"
-                        if valid:
-                            return text, None
-                        if failure_reason == "request-failed":
-                            failure_reason = "invalid-detail-template"
-                    elif not isinstance(text, str):
-                        failure_reason = "invalid-response"
-                    else:
-                        failure_reason = "response-too-large"
-                    # Wahlap can answer HTTP 200 with a temporary/non-detail
-                    # template after a burst. Treat that shape like a
-                    # transient failure so every visible play gets a chance
-                    # to be enriched rather than silently keeping only the
-                    # first pageful.
-                elif (
-                    status != 429
-                    and not (isinstance(status, int) and status >= 500)
-                ):
-                    return None, "non-retryable-status"
                 else:
-                    failure_reason = (
-                        "rate-limited" if status == 429 else "upstream-error"
-                    )
+                    merge_response_cookies(response)
+                    if isinstance(status, int) and 200 <= status < 300:
+                        try:
+                            text = getattr(response, "text", None)
+                        except Exception:
+                            text = None
+                            failure_reason = "invalid-response"
+                        if (
+                            isinstance(text, str)
+                            and len(text) <= MAX_OFFICIAL_HTML_CHARS
+                        ):
+                            valid = validator is None
+                            if validator is not None:
+                                try:
+                                    valid = validator(text, ordinal)
+                                except AdapterError:
+                                    valid = False
+                                    failure_reason = "invalid-detail-template"
+                                except Exception:
+                                    # Parser/validator bugs affect only this
+                                    # optional page. Their messages are neither
+                                    # persisted nor logged.
+                                    valid = False
+                                    failure_reason = "detail-validation-failure"
+                            if valid:
+                                return text, None
+                            if failure_reason == "request-failed":
+                                failure_reason = "invalid-detail-template"
+                        elif not isinstance(text, str):
+                            failure_reason = "invalid-response"
+                        else:
+                            failure_reason = "response-too-large"
+                        # Wahlap can answer HTTP 200 with a temporary/non-detail
+                        # template. Treat that shape like a transient failure.
+                    elif (
+                        status != 429
+                        and not (isinstance(status, int) and status >= 500)
+                    ):
+                        return None, "non-retryable-status"
+                    else:
+                        failure_reason = (
+                            "rate-limited"
+                            if status == 429
+                            else "upstream-error"
+                        )
+                        # A shared recovery gate handles official throttling
+                        # and 5xx responses. Per-row retries would otherwise
+                        # multiply one failure across the remaining window.
+                        return None, failure_reason
                 if attempt + 1 < DETAIL_REQUEST_ATTEMPTS:
                     await asyncio.sleep(0.3 * (attempt + 1))
             return None, failure_reason
 
-        # Detail GETs are deliberately serialized and paced.  The official
-        # endpoint reliably serves the full recent window this way, while a
-        # four-request burst was observed returning only the first ten real
-        # detail templates and HTTP-200 placeholders for the remainder.
-        pages: list[str | None] = []
+        async def refresh_detail_session() -> bool:
+            try:
+                async with asyncio.timeout(DETAIL_REQUEST_TIMEOUT_SECONDS):
+                    response = await request(
+                        RECORD_PAGE_URL,
+                        cookies=detail_cookies,
+                        headers={"Referer": RECORD_PAGE_URL},
+                    )
+            except (TimeoutError, RequestError):
+                return False
+            except Exception:
+                return False
+            merge_response_cookies(response)
+            try:
+                status = getattr(response, "status_code", None)
+            except Exception:
+                return False
+            return isinstance(status, int) and 200 <= status < 300
+
+        async def fetch_row(
+            value: str | None,
+            ordinal: int,
+        ) -> tuple[str | None, str | None]:
+            try:
+                async with asyncio.timeout(DETAIL_ROW_TIMEOUT_SECONDS):
+                    return await fetch_detail(value, ordinal)
+            except TimeoutError:
+                return None, "row-timeout"
+            except Exception:
+                # Last-resort row isolation. Cancellation is intentionally not
+                # swallowed so the session-wide deadline remains authoritative.
+                return None, "unexpected-row-failure"
+
+        async def fetch_with_upstream_recovery(
+            value: str | None,
+            ordinal: int,
+        ) -> tuple[str | None, str | None]:
+            page, failure_reason = await fetch_row(value, ordinal)
+            if failure_reason not in MAIMAI_UPSTREAM_FAILURE_REASONS:
+                return page, failure_reason
+            for cooldown in MAIMAI_DETAIL_UPSTREAM_COOLDOWNS_SECONDS:
+                recovery_budget = (
+                    cooldown
+                    + DETAIL_REQUEST_TIMEOUT_SECONDS
+                    + DETAIL_ROW_TIMEOUT_SECONDS
+                )
+                if not has_detail_budget(recovery_budget):
+                    LOGGER.warning(
+                        "maimai play detail recovery stopped at its soft deadline"
+                    )
+                    return None, failure_reason
+                LOGGER.warning(
+                    "maimai play detail upstream paused for %.0fs before retry",
+                    cooldown,
+                )
+                await asyncio.sleep(cooldown)
+                if not await refresh_detail_session():
+                    continue
+                page, failure_reason = await fetch_row(value, ordinal)
+                if failure_reason not in MAIMAI_UPSTREAM_FAILURE_REASONS:
+                    return page, failure_reason
+            return None, failure_reason
+
+        # The official detail endpoint starts returning 5xx after a short
+        # burst. Keep requests strictly serial and paced; when the shared
+        # recovery gate cannot restore the session, stop sending detail GETs
+        # while retaining every base play record for import.
         total = len(source_record_ids)
+        pages: list[str | None] = []
         succeeded = 0
         failure_counts: dict[str, int] = {}
+        blocked_reason: str | None = None
+        upstream_probe_required = False
         await _publish_detail_progress(
             progress_callback,
             "maimai",
@@ -1211,18 +1312,45 @@ class MaimaiPyAdapter:
             succeeded=0,
         )
         for ordinal, value in enumerate(source_record_ids):
-            if ordinal:
-                await asyncio.sleep(DETAIL_REQUEST_INTERVAL_SECONDS)
-            try:
-                async with asyncio.timeout(DETAIL_ROW_TIMEOUT_SECONDS):
-                    page, failure_reason = await fetch_detail(value, ordinal)
-            except TimeoutError:
-                page, failure_reason = None, "row-timeout"
-            except Exception:
-                # Last-resort row isolation.  Cancellation is intentionally
-                # not swallowed (asyncio.CancelledError inherits BaseException)
-                # so the session-wide deadline still works as designed.
-                page, failure_reason = None, "unexpected-row-failure"
+            if blocked_reason is None:
+                interval = (
+                    MAIMAI_DETAIL_REQUEST_INTERVAL_SECONDS if ordinal else 0.0
+                )
+                if not has_detail_budget(interval + DETAIL_ROW_TIMEOUT_SECONDS):
+                    blocked_reason = "unavailable"
+                    LOGGER.warning(
+                        "maimai play detail soft deadline reached; "
+                        "remaining detail requests were suppressed"
+                    )
+                    page, failure_reason = None, blocked_reason
+                else:
+                    if interval:
+                        await asyncio.sleep(interval)
+                    is_upstream_probe = upstream_probe_required
+                    if is_upstream_probe:
+                        page, failure_reason = await fetch_row(value, ordinal)
+                    else:
+                        page, failure_reason = await fetch_with_upstream_recovery(
+                            value, ordinal
+                        )
+                    if failure_reason in MAIMAI_UPSTREAM_FAILURE_REASONS:
+                        if is_upstream_probe:
+                            blocked_reason = failure_reason
+                            LOGGER.warning(
+                                "maimai play detail upstream failed for two "
+                                "distinct records; remaining requests were "
+                                "suppressed"
+                            )
+                        else:
+                            upstream_probe_required = True
+                            LOGGER.warning(
+                                "one maimai play detail remained unavailable; "
+                                "the next record will be used as a probe"
+                            )
+                    else:
+                        upstream_probe_required = False
+            else:
+                page, failure_reason = None, blocked_reason
             pages.append(page)
             if page is not None:
                 succeeded += 1
@@ -1840,6 +1968,8 @@ def _parse_maimai_play_detail_html(
 
     semantic_fractions: dict[str, set[tuple[int, int]]] = {}
     for node in root.iter():
+        if not isinstance(getattr(node, "tag", None), str):
+            continue
         text_content = getattr(node, "text_content", None)
         if not callable(text_content):
             continue
